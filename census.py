@@ -1,6 +1,5 @@
 # %% Import packages
 import cenpy as cen
-import pandas as pd
 
 # %% Define census querying functions
 def connect_acs():
@@ -33,12 +32,12 @@ def write_county_data(county, state, variables):
     place = county + ", " + state
     data = acs.from_county(place, variables=variables)
     
-    file_name = county + "_County_" + state + ".shp"
-    data.to_file("Data/" + file_name)
+    file_name = county + "_County_" + state + ".parquet"
+    data.to_parquet("Data/" + file_name)
 
 # %% Write descriptions of variable groups to csv file
 describe_vars("B03002")
-describe_vars("B19001")
+describe_vars("B19001B")
 
 # %% Define the variables to include in the data
 VARS = ["B03002_001",
@@ -50,8 +49,6 @@ VARS = ["B03002_001",
     "B03002_007",
     "B03002_008",
     "B03002_009",
-    "B03002_010",
-    "B03002_011",
     "B03002_012",
     "B19001B_001E",
     "B19001B_002E",
