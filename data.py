@@ -25,8 +25,10 @@ def get_data(county, state):
 
 def clean_data(gdf):
     """
-    Cleans given GeoDataFrame (renames columns and drops unnecessary columns)
+    Cleans given GeoDataFrame (renames columns, drops unnecessary columns,
+    explicitly specifies data types, and adds centroid column)
     """
+    # Rename columns
     gdf = gdf.rename(columns={"B03002_001E": "Total (Race)",
         "B03002_002E": "Total non-Hispanic",
         "B03002_003E": "White non-Hispanic",
@@ -55,5 +57,11 @@ def clean_data(gdf):
         "B19001B_016E": "$150,000 to $199,999",
         "B19001B_017E": "$200,000 or More"})
     gdf = gdf.drop(columns=["state", "county"])
+
+    # Specify data types for each column
+
+    # Add a column with the tract's centroid
+    gdf["centroid"] = gdf.centroid
+
     return gdf
 # %%
