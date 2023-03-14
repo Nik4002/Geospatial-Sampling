@@ -39,21 +39,21 @@ def write_county_data(county, state, variables):
 # describe_vars("B03002")
 # describe_vars("B19001B")
 # describe_vars("B19013")
-describe_vars("B01003")
+# describe_vars("B01003")
 
 # %% Define the variables to include in the data
 VARS = ["B01003_001E",
-    "B03002_001E",
-    "B03002_002E",
-    "B03002_003E",
-    "B03002_004E",
-    "B03002_005E",
-    "B03002_006E",
-    "B03002_007E",
-    "B03002_008E",
-    "B03002_009E",
-    "B03002_012E",
-    "B19013E_001E",
+    "B03002_001",
+    "B03002_002",
+    "B03002_003",
+    "B03002_004",
+    "B03002_005",
+    "B03002_006",
+    "B03002_007",
+    "B03002_008",
+    "B03002_009",
+    "B03002_012",
+    "B19013_001",
     # "B19001B_001E",
     # "B19001B_002E",
     # "B19001B_003E",
