@@ -25,8 +25,7 @@ def get_data(county, state):
 
 def clean_data(gdf):
     """
-    Cleans given GeoDataFrame (renames columns, drops unnecessary columns,
-    explicitly specifies data types, and adds centroid column)
+    Cleans given GeoDataFrame (renames columns, drops unnecessary columns, etc.)
     """
     # Rename columns
     gdf = gdf.rename(columns={
@@ -41,7 +40,7 @@ def clean_data(gdf):
         "B03002_008E": "other_non_hispanic",
         "B03002_009E": "two_or_more_non_hispanic",
         "B03002_012E": "hispanic",
-        "B19013E_001E": "median_income",
+        "B19013_001E": "median_income",
         # "B19001B_001E": "Total (Income)",
         # "B19001B_002E": "Less than $10,000",
         # "B19001B_003E": "$10,000 to $14,999",
@@ -67,7 +66,9 @@ def clean_data(gdf):
     # Add a column with the tract's centroid
     gdf["centroid"] = gdf.centroid
 
-    # Combine native, asian, other, and two or more into "other"
+    # Combine native, pacific , other, and two or more into "other"
+    gdf["other_non_hispanic"] = gdf["other_non_hispanic"] + gdf["native_non_hispanic"] + gdf["pacific_non_hispanic"] + gdf["two_or_more_non_hispanic"]
+    gdf = gdf.drop(columns=["native_non_hispanic", "pacific_non_hispanic", "two_or_more_non_hispanic"])
 
     return gdf
 
