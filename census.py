@@ -36,39 +36,45 @@ def write_county_data(county, state, variables):
     data.to_parquet("Data/" + file_name)
 
 # %% Write descriptions of variable groups to csv file
-describe_vars("B03002")
-describe_vars("B19001B")
+# describe_vars("B03002")
+# describe_vars("B19001B")
+# describe_vars("B19013")
+describe_vars("B01003")
 
 # %% Define the variables to include in the data
-VARS = ["B03002_001",
-    "B03002_002",
-    "B03002_003",
-    "B03002_004",
-    "B03002_005",
-    "B03002_006",
-    "B03002_007",
-    "B03002_008",
-    "B03002_009",
-    "B03002_012",
-    "B19001B_001E",
-    "B19001B_002E",
-    "B19001B_003E",
-    "B19001B_004E",
-    "B19001B_005E",
-    "B19001B_006E",
-    "B19001B_007E",
-    "B19001B_008E",
-    "B19001B_009E",
-    "B19001B_010E",
-    "B19001B_011E",
-    "B19001B_012E",
-    "B19001B_013E",
-    "B19001B_014E",
-    "B19001B_015E",
-    "B19001B_016E",
-    "B19001B_017E",
+VARS = ["B01003_001E",
+    "B03002_001E",
+    "B03002_002E",
+    "B03002_003E",
+    "B03002_004E",
+    "B03002_005E",
+    "B03002_006E",
+    "B03002_007E",
+    "B03002_008E",
+    "B03002_009E",
+    "B03002_012E",
+    "B19013E_001E",
+    # "B19001B_001E",
+    # "B19001B_002E",
+    # "B19001B_003E",
+    # "B19001B_004E",
+    # "B19001B_005E",
+    # "B19001B_006E",
+    # "B19001B_007E",
+    # "B19001B_008E",
+    # "B19001B_009E",
+    # "B19001B_010E",
+    # "B19001B_011E",
+    # "B19001B_012E",
+    # "B19001B_013E",
+    # "B19001B_014E",
+    # "B19001B_015E",
+    # "B19001B_016E",
+    # "B19001B_017E",
 ]
 
 # %% Write data for particular county to csv file
 write_county_data("Bexar", "TX", VARS)
 write_county_data("Cook", "IL", VARS)
+
+# %%

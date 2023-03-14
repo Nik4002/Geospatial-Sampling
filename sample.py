@@ -1,4 +1,5 @@
 # %% Import packages
+import numpy as np
 import pandas as pd
 import random
 
@@ -27,7 +28,61 @@ def stratified_random_sample(gdf, n):
     Returns: (dataframe) n rows from gdf
     """
     assert 0 < n <= len(gdf), "n must be between 0 and the length of the dataframe"
-    pass
+    
+    # Check if there are any duplicate IDs or null values
+
+    # Keep the five
+    races = ["white_non_hispanic", #
+        "black_non_hispanic", #
+        "native non-Hispanic",
+        "asian non-Hispanic", #
+        "pacific non-Hispanic",
+        "other non-Hispanic", #
+        "two or More non-Hispanic",
+        "hispanic"] #
+    
+    # Make a copy of the dataframe
+    gdf_copy = gdf.copy()
+
+    # Calculate total populations for each race and for the county
+    total_pops = gdf_copy[["total_population"] + races].sum(axis=0)
+
+    # # Calculate the proportions of races within the county
+    # for race in races:
+    #     col_name = race + " in County"
+    #     gdf_copy[col_name] = gdf_copy[race]/total_pops["Total Population"]
+
+    # # Calculate the proportions of races within each tract
+    # for race in races:
+    #     col_name = race + " in Tract"
+    #     gdf_copy[col_name] = gdf_copy[race]/gdf_copy["Total Population"]
+
+    # # Calculate the tract race percentiles using tract-level proportions
+    # for race in races:
+    #     col_name = race + " Pct (Tract)"
+    #     gdf_copy[col_name] = gdf_copy[race + " in Tract"].rank(pct=True)
+
+    # # Label each tract with the race with the highest percentile
+
+    # Convert table to long format
+    gdf_copy = pd.melt(gdf_copy,
+        id_vars=set(gdf_copy.columns)-set(races),
+        value_vars=races,
+        var_name="race",
+        value_name="population")
+    
+    # Calculate the proportions of races within the county
+    gdf_copy["proportion in County"] = (gdf_copy["Population"]/total_pops["Total Population"]).replace([np.inf, -np.inf, np.nan], 0)
+   
+    # Calculate the proportions of races within each tract
+    gdf_copy["Proportion in Tract"] = (gdf_copy["Population"]/gdf_copy["Total Population"]).replace([np.inf, -np.inf, np.nan], 0)
+  
+    # Calculate the tract race percentiles using tract-level proportions
+    gdf_copy["Percentile"] = gdf_copy.groupby("Race")["Proportion in Tract"].rank(pct=True)
+
+    # Label each tract with the race with the highest percentile
+    gdf_copy = gdf_copy.loc[gdf_copy.groupby("GEOID")["Percentile"].idxmax()]
+
 
 def systematic_random_sample(gdf, n):
     """
