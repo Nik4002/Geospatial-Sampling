@@ -5,7 +5,22 @@ import geopandas as gpd
 # %% Define functions
 def get_data(county, state):
     """
-    Gets data for a given county and state from Data folder 
+    Reads, cleans, and verifies data for a given county and state
+    """
+    # Read data
+    data = read_data(county, state)
+
+    # Clean data
+    data = clean_data(data)
+
+    # Verify data
+    check_data_validity(data)
+    
+    return data
+
+def read_data(county, state):
+    """
+    Reads data for a given county and state from Data folder in parquet format
     [ADD LATER: If it doesn't exist, then calls census.write_county_data() to create it]
 
     Parameters:
