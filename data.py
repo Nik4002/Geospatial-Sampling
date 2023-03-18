@@ -70,6 +70,25 @@ def clean_data(gdf):
     gdf["other_non_hispanic"] = gdf["other_non_hispanic"] + gdf["native_non_hispanic"] + gdf["pacific_non_hispanic"] + gdf["two_or_more_non_hispanic"]
     gdf = gdf.drop(columns=["native_non_hispanic", "pacific_non_hispanic", "two_or_more_non_hispanic"])
 
+    check_data_validity(gdf)
+
     return gdf
+
+def check_data_validity(gdf):
+    """
+    Checks that the data is valid (e.g. no duplicate values, no missing values,
+    and all columns sum to corresponding totals)
+    """
+    # Assert that there are no duplicate values in the tract column
+    assert not gdf["tract"].duplicated().any(), "Duplicate values in tract column"
+
+    # Assert that there are no missing values
+    assert not gdf.isnull().values.any(), "Missing values"
+
+    # Check that race columns sum to total population
+    non_hispanic = gdf[["white_non_hispanic", "black_non_hispanic", "asian_non_hispanic", "other_non_hispanic"]]
+    assert non_hispanic.sum(axis=1).equals(gdf["total_non_hispanic"])
+    assert gdf[["total_non_hispanic", "hispanic"]].sum(axis=1).equals(gdf["total_population_race"])
+    assert gdf["total_population_race"].equals(gdf["total_population"])
 
 # %%
