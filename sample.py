@@ -29,15 +29,14 @@ def stratified_random_sample(gdf, n):
     """
     assert 0 < n <= len(gdf), "n must be between 0 and the length of the dataframe"
     
-    # Keep the five
-    races = ["white_non_hispanic", #
-        "black_non_hispanic", #
-        "native_non-hispanic",
-        "asian_non-hispanic", #
-        "pacific_non-hispanic",
-        "other_non-hispanic", #
-        "two_or_more_non-hispanic",
-        "hispanic"] #
+    races = ["white_non_hispanic",
+        "black_non_hispanic",
+        # "native_non-hispanic",
+        "asian_non-hispanic",
+        # "pacific_non-hispanic",
+        "other_non-hispanic",
+        # "two_or_more_non-hispanic",
+        "hispanic"]
     
     # Make a copy of the dataframe
     gdf_copy = gdf.copy()
