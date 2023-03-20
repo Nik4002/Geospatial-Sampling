@@ -31,11 +31,8 @@ def stratified_random_sample(gdf, n):
     
     races = ["white_non_hispanic",
         "black_non_hispanic",
-        # "native_non-hispanic",
-        "asian_non-hispanic",
-        # "pacific_non-hispanic",
-        "other_non-hispanic",
-        # "two_or_more_non-hispanic",
+        "asian_non_hispanic",
+        "other_non_hispanic",
         "hispanic"]
     
     # Make a copy of the dataframe
