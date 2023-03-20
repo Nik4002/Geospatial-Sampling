@@ -5,7 +5,7 @@ import geopandas as gpd
 # %% Define functions
 def get_data(county, state):
     """
-    Reads, cleans, and verifies data for a given county and state
+    Reads and cleans data for a given county and state
     """
     # Read data
     data = read_data(county, state)
@@ -13,9 +13,6 @@ def get_data(county, state):
     # Clean data
     data = clean_data(data)
 
-    # Verify data
-    check_data_validity(data)
-    
     return data
 
 def read_data(county, state):
@@ -84,6 +81,9 @@ def clean_data(gdf):
     # Combine native, pacific , other, and two or more into "other"
     gdf["other_non_hispanic"] = gdf["other_non_hispanic"] + gdf["native_non_hispanic"] + gdf["pacific_non_hispanic"] + gdf["two_or_more_non_hispanic"]
     gdf = gdf.drop(columns=["native_non_hispanic", "pacific_non_hispanic", "two_or_more_non_hispanic"])
+
+    # Drop rows with missing median income values
+    gdf = gdf.dropna(subset=["median_income"])
 
     check_data_validity(gdf)
 
