@@ -38,6 +38,9 @@ def stratified_random_sample(gdf, n):
     # Make a copy of the dataframe
     gdf_copy = gdf.copy()
 
+    # Make a geometry side table
+    geoms = gdf_copy["geometry"]
+
     # Calculate total populations for each race and for the county
     total_pops = gdf_copy[["total_population"] + races].sum(axis=0)
 
