@@ -1,23 +1,12 @@
 # %% Import packages
 import numpy as np
 import pandas as pd
+import geopandas as gpd
 import random
+import scipy.stats as stats
 
-# %% Define sampling functions
-def simple_random_sample(gdf, n):
-    """
-    Returns a simple random sample of n rows from a geodataframe
-
-    Parameters:
-        gdf (dataframe): Dataframe to sample
-        n (int): Number of rows to sample
-
-    Returns: (dataframe) n rows from gdf
-    """
-    assert 0 < n <= len(gdf), "n must be between 0 and the length of the dataframe"
-    return gdf.sample(n=n)
-
-def stratified_random_sample(gdf, n):
+# %% Define function to get n stratified tracts
+def subset(gdf, n, seed=1):
     """
     Returns a stratified random sample of n rows from a geodataframe
 
@@ -39,7 +28,7 @@ def stratified_random_sample(gdf, n):
     gdf_copy = gdf.copy()
 
     # Make a geometry side table and a shortened table to be pivoted
-    geoms = gdf[["tract", "geometry"]]
+    geoms = gdf[["tract", "geometry", "centroid", "GEOID", "NAME"]]
     to_drop = ["geometry",
         "total_population_race",
         "centroid",
@@ -50,23 +39,6 @@ def stratified_random_sample(gdf, n):
 
     # Calculate total populations for each race and for the county
     total_pops = gdf_copy[["total_population"] + races].sum(axis=0)
-
-    # # Calculate the proportions of races within the county
-    # for race in races:
-    #     col_name = race + " in County"
-    #     gdf_copy[col_name] = gdf_copy[race]/total_pops["Total Population"]
-
-    # # Calculate the proportions of races within each tract
-    # for race in races:
-    #     col_name = race + " in Tract"
-    #     gdf_copy[col_name] = gdf_copy[race]/gdf_copy["Total Population"]
-
-    # # Calculate the tract race percentiles using tract-level proportions
-    # for race in races:
-    #     col_name = race + " Pct (Tract)"
-    #     gdf_copy[col_name] = gdf_copy[race + " in Tract"].rank(pct=True)
-
-    # # Label each tract with the race with the highest percentile
 
     # Convert table to long format
     gdf_copy = pd.melt(gdf_copy,
@@ -85,26 +57,88 @@ def stratified_random_sample(gdf, n):
     gdf_copy["percentile"] = gdf_copy.groupby("race")["proportion_in_tract"].rank(pct=True)
 
     # Label each tract with the race with the highest percentile
-    gdf_copy = gdf_copy.loc[gdf_copy.groupby("GEOID")["percentile"].idxmax()]
+    gdf_copy = gdf_copy.loc[gdf_copy.groupby("tract")["percentile"].idxmax()]
+    gdf_copy = gdf_copy.drop(columns=["proportion_in_county", "proportion_in_tract", "percentile"])
 
-    # Check if there are any duplicate IDs or null values
+    # Check if parameters are valid
+    assert gdf_copy.shape[0] >= n, 'Sample size must be less than or equal to the number of rows in the dataframe'
+    # assert len(set(gdf_copy["race"].unique())-set(total_pops["race"].unique())) == 0, 'The race values must be the same in both dataframes'
 
-    # Check that there are enough tracts for every race group
-        # Count the tracts by race category
-        # Compare to total county population by race
+    # Turn total population into a dataframe
+    total_pops = total_pops.to_frame().reset_index().rename(columns={"index": "race", 0: "total_population"})
 
-def systematic_random_sample(gdf, n):
+    # Draw stratified sample
+    gdf_copy = pd.merge(left = gdf_copy, right = total_pops, on = "race", how = 'left')
+    sampling_frac = n / gdf_copy.shape[0]
+    sample_df = gdf_copy.groupby("race").apply(lambda x: x.sample(frac = sampling_frac, weights="population", random_state=seed)).reset_index(drop = True)
+    assert sample_df.shape[0] == n, 'Sample size is not equal to the desired sample size'
+
+    # Check if sample is representative of population
+    a = pd.concat([sample_df.groupby(by=["race"])["population"].agg('sum') / sample_df["population"].sum()],axis=1).reset_index()
+    b = pd.concat([total_pops.groupby(by=["race"])["total_population"].agg('sum') / total_pops["total_population"].sum()],axis=1).reset_index()
+    c = a.merge(b, on = "race", how = 'inner').rename(columns = {"total_population": "population_proportion", "population": "sample_proportion"})
+    kl_divergence = round(stats.entropy(pk=c["sample_proportion"], qk=c["population_proportion"]),4)
+    # if kl_divergence > 0.05:
+    #     print(f'Sample may not be sufficiently representative of population. Consider changing random seed or increasing n. Kullback-Leibler divergence is {kl_divergence}.')
+    #     print(c)
+    # else:
+    #     print(f'Sample is representative of population. Kullback-Leibler divergence is {kl_divergence}.')
+    #     print(c)
+
+    # Merge sample with geometry side table
+    sample_df = sample_df.drop(columns="total_population_y").merge(geoms, on = "tract", how = 'left').rename(columns={"total_population_x": "total_population"})
+    
+    # Convert to geodataframe
+    sample_df = gpd.GeoDataFrame(sample_df, geometry="geometry", crs=gdf.crs)
+
+    return sample_df
+
+# %% Define sampling functions
+def simple_random_sample(gdf, n, seed=1):
+    """
+    Returns a simple random sample of n rows from a geodataframe
+
+    Parameters:
+        gdf (dataframe): Dataframe to sample
+        n (int): Number of rows to sample
+        seed (int): Random seed
+
+    Returns: (dataframe) n rows from gdf
+    """
+    assert 0 < n <= len(gdf), "n must be between 0 and the length of the dataframe"
+    gdf = subset(gdf, 100, seed=seed)
+    return gdf.sample(n=n)
+
+def stratified_random_sample(gdf, n, seed=1):
+    """
+    Returns a stratified random sample of n rows from a geodataframe
+    
+    Parameters:
+        gdf (dataframe): Dataframe to sample
+        n (int): Number of rows to sample
+        seed (int): Random seed
+
+    Returns: (dataframe) n rows from gdf    
+    """
+    gdf = subset(gdf, 100, seed=seed)
+    # print(gdf)
+    return gdf.groupby("race").sample(n//5)
+
+def systematic_random_sample(gdf, n, seed=1):
     """
     Returns a systematic random sample of n rows from a geodataframe
 
     Parameters:
         gdf (dataframe): Dataframe to sample
         n (int): Number of rows to sample
+        seed (int): Random seed
 
     Returns: (dataframe) n rows from gdf
     """
     assert 0 < n <= len(gdf), "n must be between 0 and the length of the dataframe"
     
+    gdf = subset(gdf, 100, seed=seed)
+
     # Make a copy of the dataframe
     gdf_copy = gdf.copy()
 
@@ -125,18 +159,21 @@ def systematic_random_sample(gdf, n):
     sample = gdf.loc[sample.index]
     return sample
 
-def cluster_random_sample(gdf, n):
+def cluster_random_sample(gdf, n, seed=1):
     """
     Returns a cluster random sample of n rows from a geodataframe
 
     Parameters:
         gdf (dataframe): Dataframe to sample
         n (int): Number of rows to sample
+        seed (int): Random seed
 
     Returns: (dataframe) n rows from gdf
     """
     assert 0 < n <= len(gdf), "n must be between 0 and the length of the dataframe"
     
+    gdf = subset(gdf, 100, seed=seed)
+
     # Create a new column with centroids of each polygon
     gdf_cents = gdf.copy()
     gdf_cents["centroid"] = gdf_cents.centroid
