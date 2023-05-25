@@ -24,15 +24,15 @@ def write_county_data(county, state, variables):
     Writes data for a given county and variables to csv file
 
     Parameters:
-        place (str): County name (e.g. "Bexar")
-        state (str): State name (e.g. "TX")
+        place (str): County name (e.g. "Bexar County")
+        state (str): State abbreviation (e.g. "TX")
         variables (list): List of variables to include in data
     """
     acs = connect_acs()
     place = county + ", " + state
     data = acs.from_county(place, variables=variables)
     
-    file_name = county + "_County_" + state + ".parquet"
+    file_name = county.replace(" ", "_") + "_" + state + ".parquet"
     data.to_parquet("Data/" + file_name)
 
 # %% Write descriptions of variable groups to csv file
@@ -74,7 +74,7 @@ VARS = ["B01003_001E",
 ]
 
 # %% Write data for particular county to csv file
-write_county_data("Bexar", "TX", VARS)
-write_county_data("Cook", "IL", VARS)
+# write_county_data("Bexar", "TX", VARS)
+# write_county_data("Cook", "IL", VARS)
 
 # %%

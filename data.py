@@ -1,21 +1,120 @@
 # %% Import libraries
 import pandas as pd
 import geopandas as gpd
-# from census import write_county_data, VARS
+from census import write_county_data, write_city_data, VARS
 # %% Define functions
-def get_data(county, state):
+def split_place_name(place):
+    """
+    Splits a place name into city and state names
+
+    Parameters:
+        place (str): Place name (e.g. "San Antonio, TX")
+    
+    Returns:
+        city (str): City name (e.g. "San Antonio")
+        state (str): State name (e.g. "TX")
+    """
+    place_split = place.split(", ")
+    city = place_split[0]
+    state = place_split[1]
+    return city, state
+
+def add_city(key, city, state):
+    """
+    Adds a city to parquet file called "cities.parquet"
+
+    Parameters:
+        key (str): Census API name for city (e.g. "San Antonio city")
+        city (str): City name (e.g. "San Antonio")
+        state (str): State name (e.g. "TX")
+    
+    Returns:
+        None
+    """
+    # Read data
+    try:
+        data = get_city_data(city, state)
+    except:
+        print(f"{city}, {state} data could not be pulled")
+        return False
+    
+    # Add place name as a column to data
+    data["place"] = city + ", " + state
+
+    # Check if data is empty
+    if data.empty:
+        print(f"{city}, {state} produced an empty dataframe")
+        return False
+
+    # Read cities.parquet
+    try:
+        cities = gpd.read_parquet("cities.parquet")
+    except FileNotFoundError:
+        cities = gpd.GeoDataFrame()
+
+    # Create a copy of cities
+    cities_copy = cities.copy()
+
+    # Add city to cities.parquet using concat
+    # cities = gpd.concat([cities, data])
+    cities = gpd.GeoDataFrame(pd.concat([cities, data], ignore_index=True) )
+
+    # Remove duplicates by GEOID
+    cities = cities.drop_duplicates(subset="GEOID")
+
+    # Check if cities.parquet has changed
+    if cities.equals(cities_copy):
+        print(f"{city}, {state} has already been added to cities.parquet")
+        return False
+
+    # Write cities.parquet
+    cities.to_parquet("cities.parquet")
+
+    return True
+
+def get_county_data(county, state):
     """
     Reads and cleans data for a given county and state
     """
     # Read data
-    data = read_data(county, state)
+    data = read_county_data(county, state)
 
     # Clean data
     data = clean_data(data)
 
     return data
 
-def read_data(county, state):
+def get_city_data(city, state):
+    """
+    Reads and cleans data for a given city and state
+    """
+    # Read data
+    data = read_city_data(city, state)
+
+    # Clean data
+    data = clean_data(data)
+
+    return data
+
+def read_city_data(city, state):
+    """
+    Reads data for a given city and state from Data folder in parquet format
+
+    Parameters:
+        city (str): City name (e.g. "San Antonio")
+        state (str): State name (e.g. "TX")
+    
+    Returns:
+        data (DataFrame): Data for given city and state
+    """
+    try:
+        data = gpd.read_parquet("Data/" + city.replace(" ", "_") + "_" + state + ".parquet")
+    except FileNotFoundError:
+        write_city_data(city, state, VARS)
+        data = gpd.read_parquet("Data/" + city.replace(" ", "_") + "_" + state + ".parquet")
+    return data
+
+def read_county_data(county, state):
     """
     Reads data for a given county and state from Data folder in parquet format
     [ADD LATER: If it doesn't exist, then calls census.write_county_data() to create it]
@@ -27,13 +126,13 @@ def read_data(county, state):
     Returns:
         data (DataFrame): Data for given county and state
     """
-    # try:
-    #     data = gpd.read_parquet("Data/" + county + "_County_" + state + ".parquet")
-    # except FileNotFoundError:
-    #     write_county_data(county, state, VARS)
-    #     data = gpd.read_parqut("Data/" + county + "_County_" + state + ".parquet")
-    # return data
-    return gpd.read_parquet("Data/" + county + "_County_" + state + ".parquet")
+    try:
+        data = gpd.read_parquet("Data/" + county.replace(" ", "_") + "_" + state + ".parquet")
+    except FileNotFoundError:
+        write_county_data(county, state, VARS)
+        data = gpd.read_parquet("Data/" + county.replace(" ", "_") + "_" + state + ".parquet")
+    return data
+    # return gpd.read_parquet("Data/" + county + "_County_" + state + ".parquet")
 
 def clean_data(gdf):
     """
