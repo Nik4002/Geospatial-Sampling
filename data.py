@@ -1,7 +1,9 @@
 # %% Import libraries
 import pandas as pd
 import geopandas as gpd
-from census import write_county_data, write_city_data, VARS
+import cenpy as cen
+from census import write_county_data, write_city_data, connect_acs, VARS
+from sample import race_label
 # %% Define functions
 def split_place_name(place):
     """
@@ -19,32 +21,137 @@ def split_place_name(place):
     state = place_split[1]
     return city, state
 
-def add_city(key, city, state):
+def state_abbrev(state):
+    """
+    Returns the state abbreviation given the state name
+
+    Parameters:
+        state (str): State name (e.g. "Texas")
+
+    Returns:
+        abbrev (str): State abbreviation (e.g. "TX")
+    """
+    abbr = pd.read_csv("State_Abbreviations.csv")
+    return abbr.set_index("State").loc[state, "Abbr"]
+
+def colloquial(key):
+    """
+    Returns the colloquial name of a city, given its full Census name
+    (e.g. "Urban Honolulu CDP" -> "Honolulu", "Chicago city" -> "Chicago")
+
+    Parameters:
+        key (str): Census city name (e.g. "San Antonio city")
+    
+    Returns:
+        city (str): Colloquial city name (e.g. "San Antonio")
+    """
+    # Handle special cases
+    if key == "Urban Honolulu CDP":
+        return "Honolulu"
+    elif key == "Nashville-Davidson metropolitan government (balance)":
+        return "Nashville"
+    elif key == "Louisville/Jefferson County metro government (balance)":
+        return "Louisville"
+    elif key == "Lexington-Fayette urban county":
+        return "Lexington"
+
+    city = key
+
+    # # Remove " city" from key
+    # city = city.replace(" city", "")
+
+    # # Remove " municipality" from key
+    # city = city.replace(" municipality", "")
+
+    # # Remove " town" from key
+    # city = city.replace(" town", "")
+
+    # # Remove " balance" from key
+    # city = city.replace(" (balance)", "")
+
+    # Split city into words
+    city_split = city.split(" ")
+
+    # Remove words that do not start with uppercase letters
+    city_split = [word for word in city_split if word[0].isupper()]
+
+    # Join words back together
+    city = " ".join(city_split)
+
+    return city
+
+def place_table():
+    """
+    Returns a GeoDataFrame of places in the US
+    """
+    return cen.explorer.fips_table("place")
+
+def place_type(city, state, places):
+    """
+    Returns the type of place (Incorporated Place, Census Designated Place, etc.)
+    for the given city and state
+
+    Parameters:
+        city (str): City name (e.g. "San Antonio city")
+        state (str): State name (e.g. "TX")
+        places (GeoDataFrame): GeoDataFrame of places in the US
+
+    Returns:
+        (str): Type of place (e.g. "Incorporated Place")
+    """
+    matches = places[(places["PLACENAME"] == city) & (places["STATE"] == state)]
+    types = matches["TYPE"].unique().tolist()
+    if "Incorporated Place" in types:
+        return "Incorporated Place"
+    elif "Census Designated Place" in types:
+        return "Census Designated Place"
+    elif "County Subdivision" in types:
+        return "County Subdivision"
+    else:
+        raise KeyError("Invalid input")
+
+def add_city(key, city, state, acs=connect_acs()):
     """
     Adds a city to parquet file called "cities.parquet"
 
     Parameters:
         key (str): Census API name for city (e.g. "San Antonio city")
-        city (str): City name (e.g. "San Antonio")
+        city (str): Colloquial name (e.g. "San Antonio")
         state (str): State name (e.g. "TX")
     
     Returns:
         None
     """
     # Read data
+    places = place_table()
+
+    type = place_type(key, city, places)
+
     try:
-        data = get_city_data(city, state)
+        data = get_city_data(key, state, type, acs=acs, write=False)
     except:
         print(f"{city}, {state} data could not be pulled")
         return False
     
-    # Add place name as a column to data
-    data["place"] = city + ", " + state
+    # Add place name columns
+    data["colloquial_name"] = city
+    data["place_name"] = key
+    data["state"] = state
 
     # Check if data is empty
     if data.empty:
         print(f"{city}, {state} produced an empty dataframe")
         return False
+    
+    # # Stratify data by race
+    # races = ["white_non_hispanic",
+    #     "black_non_hispanic",
+    #     "asian_non_hispanic",
+    #     "other_non_hispanic",
+    #     "hispanic"]
+    # data = race_label(data, races)
+
+    # Randomly assign a label to each tract (just so we have a column to use in regionalization later)
 
     # Read cities.parquet
     try:
@@ -57,7 +164,7 @@ def add_city(key, city, state):
 
     # Add city to cities.parquet using concat
     # cities = gpd.concat([cities, data])
-    cities = gpd.GeoDataFrame(pd.concat([cities, data], ignore_index=True) )
+    cities = gpd.GeoDataFrame(pd.concat([cities, data], ignore_index=True))
 
     # Remove duplicates by GEOID
     cities = cities.drop_duplicates(subset="GEOID")
@@ -72,6 +179,7 @@ def add_city(key, city, state):
 
     return True
 
+# %%
 def get_county_data(county, state):
     """
     Reads and cleans data for a given county and state
@@ -84,34 +192,40 @@ def get_county_data(county, state):
 
     return data
 
-def get_city_data(city, state):
+def get_city_data(city, state, write=True):
     """
     Reads and cleans data for a given city and state
     """
     # Read data
-    data = read_city_data(city, state)
+    data = read_city_data(city, state, write=write)
 
     # Clean data
     data = clean_data(data)
 
     return data
 
-def read_city_data(city, state):
+def read_city_data(city, state, placetype, acs=connect_acs(), write=False):
     """
     Reads data for a given city and state from Data folder in parquet format
 
     Parameters:
-        city (str): City name (e.g. "San Antonio")
+        city (str): City name (e.g. "San Antonio city")
         state (str): State name (e.g. "TX")
+        acs (census.ACS): ACS connection object
+        write (bool): If True, then writes data to parquet file
     
     Returns:
         data (DataFrame): Data for given city and state
     """
-    try:
-        data = gpd.read_parquet("Data/" + city.replace(" ", "_") + "_" + state + ".parquet")
-    except FileNotFoundError:
-        write_city_data(city, state, VARS)
-        data = gpd.read_parquet("Data/" + city.replace(" ", "_") + "_" + state + ".parquet")
+    if write == True:
+        try:
+            data = gpd.read_parquet("Data/" + city.replace(" ", "_") + "_" + state + ".parquet")
+        except FileNotFoundError:
+            write_city_data(city, state, VARS)
+            data = gpd.read_parquet("Data/" + city.replace(" ", "_") + "_" + state + ".parquet")
+    else:
+        place = city + ", " + state
+        data = acs.from_place(place, place_type=placetype, variables=VARS)
     return data
 
 def read_county_data(county, state):
@@ -177,14 +291,17 @@ def clean_data(gdf):
     # Add a column with the tract's centroid
     gdf["centroid"] = gdf.centroid
 
-    # Combine native, pacific , other, and two or more into "other"
-    gdf["other_non_hispanic"] = gdf["other_non_hispanic"] + gdf["native_non_hispanic"] + gdf["pacific_non_hispanic"] + gdf["two_or_more_non_hispanic"]
-    gdf = gdf.drop(columns=["native_non_hispanic", "pacific_non_hispanic", "two_or_more_non_hispanic"])
+    # # Combine native, pacific , other, and two or more into "other"
+    # gdf["other_non_hispanic"] = gdf["other_non_hispanic"] + gdf["native_non_hispanic"] + gdf["pacific_non_hispanic"] + gdf["two_or_more_non_hispanic"]
+    # gdf = gdf.drop(columns=["native_non_hispanic", "pacific_non_hispanic", "two_or_more_non_hispanic"])
 
     # Drop rows with missing median income values
     gdf = gdf.dropna(subset=["median_income"])
 
     check_data_validity(gdf)
+
+    # Remove total population from race variables
+    gdf = gdf.drop(columns=["total_population_race"])
 
     return gdf
 
