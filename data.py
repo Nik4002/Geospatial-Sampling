@@ -110,7 +110,7 @@ def place_type(city, state, places):
     else:
         raise KeyError("Invalid input")
 
-def add_city(key, city, state, acs=connect_acs(), places=place_table()):
+def add_city(key, city, state, acs=connect_acs(), places=place_table(), strict_within=True):
     """
     Adds a city to parquet file called "cities.parquet"
 
@@ -125,7 +125,7 @@ def add_city(key, city, state, acs=connect_acs(), places=place_table()):
     # Read data from Census API
     type = place_type(key, state, places)
 
-    data = get_city_data(key, state, type, acs=acs, write=False)
+    data = get_city_data(key, state, type, acs=acs, write=False, strict_within=strict_within)
     
     # Add place name columns
     data["colloquial_name"] = city
@@ -150,11 +150,17 @@ def add_city(key, city, state, acs=connect_acs(), places=place_table()):
 
     # Randomly assign a label to each tract (just so we have a column to use in regionalization later)
 
+    if strict_within == True:
     # Read cities.parquet
-    try:
-        cities = gpd.read_parquet("cities.parquet")
-    except FileNotFoundError:
-        cities = gpd.GeoDataFrame()
+        try:
+            cities = gpd.read_parquet("cities.parquet")
+        except FileNotFoundError:
+            cities = gpd.GeoDataFrame()
+    else:
+        try:
+            cities = gpd.read_parquet("cities_loose.parquet")
+        except FileNotFoundError:
+            cities = gpd.GeoDataFrame()
 
     # Create a copy of cities
     cities_copy = cities.copy()
@@ -163,16 +169,19 @@ def add_city(key, city, state, acs=connect_acs(), places=place_table()):
     # cities = gpd.concat([cities, data])
     cities = gpd.GeoDataFrame(pd.concat([cities, data], ignore_index=True))
 
-    # Remove duplicates by GEOID
-    cities = cities.drop_duplicates(subset="GEOID")
+    # Remove duplicates by GEOID, placename, and state
+    cities = cities.drop_duplicates(subset=["GEOID", "place_name", "state"])
 
     # Check if cities.parquet has changed
     if cities.equals(cities_copy):
-        print(f"{city}, {state} has already been added to cities.parquet")
+        print(f"{city}, {state} has already been added to file")
         return False
 
-    # Write cities.parquet
-    cities.to_parquet("cities.parquet")
+    # Write to file
+    if strict_within == True:
+        cities.to_parquet("cities.parquet")
+    else:
+        cities.to_parquet("cities_loose.parquet")
 
     return True
 
@@ -189,19 +198,19 @@ def get_county_data(county, state):
 
     return data
 
-def get_city_data(city, state, placetype, write=False):
+def get_city_data(city, state, placetype, acs=connect_acs(), write=False, strict_within=True):
     """
     Reads and cleans data for a given city and state
     """
     # Read data
-    data = read_city_data(city, state, placetype, write=write)
+    data = read_city_data(city, state, placetype, acs=acs, write=write, strict_within=strict_within)
 
     # Clean data
     data = clean_data(data)
 
     return data
 
-def read_city_data(city, state, placetype, acs=connect_acs(), write=False):
+def read_city_data(city, state, placetype, acs=connect_acs(), write=False, strict_within=True):
     """
     Reads data for a given city and state from Data folder in parquet format
 
@@ -222,7 +231,7 @@ def read_city_data(city, state, placetype, acs=connect_acs(), write=False):
             data = gpd.read_parquet("Data/" + city.replace(" ", "_") + "_" + state + ".parquet")
     else:
         place = city + ", " + state
-        data = acs.from_place(place, place_type=placetype, variables=VARS)
+        data = acs.from_place(place, place_type=placetype, variables=VARS, return_geometry=True, strict_within=strict_within)
     return data
 
 def read_county_data(county, state):
@@ -307,8 +316,8 @@ def check_data_validity(gdf):
     Checks that the data is valid (e.g. no duplicate values, no missing values,
     and all columns sum to corresponding totals)
     """
-    # Assert that there are no duplicate values in the tract column
-    assert not gdf["tract"].duplicated().any(), "Duplicate values in tract column"
+    # Assert that there are no duplicate values in the GEOID column
+    assert not gdf["GEOID"].duplicated().any(), "Duplicate values in GEOID column"
 
     # Assert that there are no missing values
     assert not gdf.isnull().values.any(), "Missing values"
