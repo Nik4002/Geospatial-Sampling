@@ -110,7 +110,7 @@ def place_type(city, state, places):
     else:
         raise KeyError("Invalid input")
 
-def add_city(key, city, state, acs=connect_acs()):
+def add_city(key, city, state, acs=connect_acs(), places=place_table()):
     """
     Adds a city to parquet file called "cities.parquet"
 
@@ -122,16 +122,10 @@ def add_city(key, city, state, acs=connect_acs()):
     Returns:
         None
     """
-    # Read data
-    places = place_table()
+    # Read data from Census API
+    type = place_type(key, state, places)
 
-    type = place_type(key, city, places)
-
-    try:
-        data = get_city_data(key, state, type, acs=acs, write=False)
-    except:
-        print(f"{city}, {state} data could not be pulled")
-        return False
+    data = get_city_data(key, state, type, acs=acs, write=False)
     
     # Add place name columns
     data["colloquial_name"] = city
@@ -142,6 +136,9 @@ def add_city(key, city, state, acs=connect_acs()):
     if data.empty:
         print(f"{city}, {state} produced an empty dataframe")
         return False
+    
+    # Rank tracts by fips code and assign them values 1-10 based on their decile
+    data["region"] = (data["GEOID"].rank(pct=True) // 0.1 + 1).astype(int)
     
     # # Stratify data by race
     # races = ["white_non_hispanic",
@@ -192,12 +189,12 @@ def get_county_data(county, state):
 
     return data
 
-def get_city_data(city, state, write=True):
+def get_city_data(city, state, placetype, write=False):
     """
     Reads and cleans data for a given city and state
     """
     # Read data
-    data = read_city_data(city, state, write=write)
+    data = read_city_data(city, state, placetype, write=write)
 
     # Clean data
     data = clean_data(data)
@@ -317,7 +314,9 @@ def check_data_validity(gdf):
     assert not gdf.isnull().values.any(), "Missing values"
 
     # Check that race columns sum to total population
-    non_hispanic = gdf[["white_non_hispanic", "black_non_hispanic", "asian_non_hispanic", "other_non_hispanic"]]
+    non_hispanic = gdf[["white_non_hispanic", "black_non_hispanic", "asian_non_hispanic", "pacific_non_hispanic", "native_non_hispanic", "two_or_more_non_hispanic", "other_non_hispanic"]]
+
+
     assert non_hispanic.sum(axis=1).equals(gdf["total_non_hispanic"])
     assert gdf[["total_non_hispanic", "hispanic"]].sum(axis=1).equals(gdf["total_population_race"])
     assert gdf["total_population_race"].equals(gdf["total_population"])
