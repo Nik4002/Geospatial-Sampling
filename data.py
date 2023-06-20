@@ -1,10 +1,29 @@
-# %% Import libraries
+# %%
 import pandas as pd
 import geopandas as gpd
 import cenpy as cen
-from census import write_county_data, write_city_data, connect_acs, VARS
-from sample import race_label
-# %% Define functions
+
+def connect_acs():
+    """
+    Establishes connection to American Community Survey data API
+    """
+    acs = cen.products.ACS()
+    return acs
+
+VARS = ["B01003_001E",
+    "B03002_001",
+    "B03002_002",
+    "B03002_003",
+    "B03002_004",
+    "B03002_005",
+    "B03002_006",
+    "B03002_007",
+    "B03002_008",
+    "B03002_009",
+    "B03002_012",
+    "B19013_001"
+]
+
 def split_place_name(place):
     """
     Splits a place name into city and state names
@@ -110,107 +129,86 @@ def place_type(city, state, places):
     else:
         raise KeyError("Invalid input")
 
-def add_city(key, city, state, acs=connect_acs(), places=place_table(), strict_within=True):
-    """
-    Adds a city to parquet file called "cities.parquet"
+# def add_city(key, state, acs=connect_acs(), places=place_table(), strict_within=True):
+#     """
+#     Adds a city to parquet file called "cities.parquet"
 
-    Parameters:
-        key (str): Census API name for city (e.g. "San Antonio city")
-        city (str): Colloquial name (e.g. "San Antonio")
-        state (str): State name (e.g. "TX")
+#     Parameters:
+#         key (str): Census API name for city (e.g. "San Antonio city")
+#         city (str): Colloquial name (e.g. "San Antonio")
+#         state (str): State name (e.g. "TX")
     
-    Returns:
-        None
-    """
-    # Read data from Census API
-    type = place_type(key, state, places)
-
-    data = get_city_data(key, state, type, acs=acs, write=False, strict_within=strict_within)
+#     Returns:
+#         None
+#     """
+#     # Read data from Census API
+#     type = place_type(key, state, places)
     
-    # Add place name columns
-    data["colloquial_name"] = city
-    data["place_name"] = key
-    data["state"] = state
+#     city = colloquial(key)
 
-    # Check if data is empty
-    if data.empty:
-        print(f"{city}, {state} produced an empty dataframe")
-        return False
+#     data = get_city_data(key, state, type, acs=acs, strict_within=strict_within)
     
-    # Rank tracts by fips code and assign them values 1-10 based on their decile
-    data["region"] = (data["GEOID"].rank(pct=True) // 0.1 + 1).astype(int)
+#     # Add place name columns
+#     data["colloquial_name"] = city
+#     data["place_name"] = key
+#     data["state"] = state
+
+#     # Check if data is empty
+#     if data.empty:
+#         print(f"{city}, {state} produced an empty dataframe")
+#         return False
     
-    # # Stratify data by race
-    # races = ["white_non_hispanic",
-    #     "black_non_hispanic",
-    #     "asian_non_hispanic",
-    #     "other_non_hispanic",
-    #     "hispanic"]
-    # data = race_label(data, races)
+#     # Rank tracts by fips code and assign them values 1-10 based on their decile
+#     data["region"] = (data["GEOID"].rank(pct=True) // 0.1 + 1).astype(int)
+    
+#     if strict_within == True:
+#     # Read cities.parquet
+#         try:
+#             cities = gpd.read_parquet("cities.parquet")
+#         except FileNotFoundError:
+#             cities = gpd.GeoDataFrame()
+#     else:
+#         try:
+#             cities = gpd.read_parquet("cities_loose.parquet")
+#         except FileNotFoundError:
+#             cities = gpd.GeoDataFrame()
 
-    # Randomly assign a label to each tract (just so we have a column to use in regionalization later)
+#     # Create a copy of cities
+#     cities_copy = cities.copy()
 
-    if strict_within == True:
-    # Read cities.parquet
-        try:
-            cities = gpd.read_parquet("cities.parquet")
-        except FileNotFoundError:
-            cities = gpd.GeoDataFrame()
-    else:
-        try:
-            cities = gpd.read_parquet("cities_loose.parquet")
-        except FileNotFoundError:
-            cities = gpd.GeoDataFrame()
+#     # Add city to cities.parquet using concat
+#     # cities = gpd.concat([cities, data])
+#     cities = gpd.GeoDataFrame(pd.concat([cities, data], ignore_index=True))
 
-    # Create a copy of cities
-    cities_copy = cities.copy()
+#     # Remove duplicates by GEOID, placename, and state
+#     cities = cities.drop_duplicates(subset=["GEOID", "place_name", "state"])
 
-    # Add city to cities.parquet using concat
-    # cities = gpd.concat([cities, data])
-    cities = gpd.GeoDataFrame(pd.concat([cities, data], ignore_index=True))
+#     # Check if cities.parquet has changed
+#     if cities.equals(cities_copy):
+#         print(f"{city}, {state} has already been added to file")
+#         return False
 
-    # Remove duplicates by GEOID, placename, and state
-    cities = cities.drop_duplicates(subset=["GEOID", "place_name", "state"])
+#     # Write to file
+#     if strict_within == True:
+#         cities.to_parquet("cities.parquet")
+#     else:
+#         cities.to_parquet("cities_loose.parquet")
 
-    # Check if cities.parquet has changed
-    if cities.equals(cities_copy):
-        print(f"{city}, {state} has already been added to file")
-        return False
+#     return True
 
-    # Write to file
-    if strict_within == True:
-        cities.to_parquet("cities.parquet")
-    else:
-        cities.to_parquet("cities_loose.parquet")
-
-    return True
-
-# %%
-def get_county_data(county, state):
-    """
-    Reads and cleans data for a given county and state
-    """
-    # Read data
-    data = read_county_data(county, state)
-
-    # Clean data
-    data = clean_data(data)
-
-    return data
-
-def get_city_data(city, state, placetype, acs=connect_acs(), write=False, strict_within=True):
+def get_city_data(city, state, placetype, acs=connect_acs(), strict_within=True):
     """
     Reads and cleans data for a given city and state
     """
     # Read data
-    data = read_city_data(city, state, placetype, acs=acs, write=write, strict_within=strict_within)
+    data = read_city_data(city, state, placetype, acs=acs, strict_within=strict_within)
 
     # Clean data
     data = clean_data(data)
 
     return data
 
-def read_city_data(city, state, placetype, acs=connect_acs(), write=False, strict_within=True):
+def read_city_data(city, state, placetype, acs=connect_acs(), strict_within=True):
     """
     Reads data for a given city and state from Data folder in parquet format
 
@@ -218,41 +216,13 @@ def read_city_data(city, state, placetype, acs=connect_acs(), write=False, stric
         city (str): City name (e.g. "San Antonio city")
         state (str): State name (e.g. "TX")
         acs (census.ACS): ACS connection object
-        write (bool): If True, then writes data to parquet file
     
     Returns:
         data (DataFrame): Data for given city and state
     """
-    if write == True:
-        try:
-            data = gpd.read_parquet("Data/" + city.replace(" ", "_") + "_" + state + ".parquet")
-        except FileNotFoundError:
-            write_city_data(city, state, VARS)
-            data = gpd.read_parquet("Data/" + city.replace(" ", "_") + "_" + state + ".parquet")
-    else:
-        place = city + ", " + state
-        data = acs.from_place(place, place_type=placetype, variables=VARS, return_geometry=True, strict_within=strict_within)
+    place = city + ", " + state
+    data = acs.from_place(place, place_type=placetype, variables=VARS, return_geometry=True, strict_within=strict_within)
     return data
-
-def read_county_data(county, state):
-    """
-    Reads data for a given county and state from Data folder in parquet format
-    [ADD LATER: If it doesn't exist, then calls census.write_county_data() to create it]
-
-    Parameters:
-        county (str): County name (e.g. "Bexar")
-        state (str): State name (e.g. "TX")
-    
-    Returns:
-        data (DataFrame): Data for given county and state
-    """
-    try:
-        data = gpd.read_parquet("Data/" + county.replace(" ", "_") + "_" + state + ".parquet")
-    except FileNotFoundError:
-        write_county_data(county, state, VARS)
-        data = gpd.read_parquet("Data/" + county.replace(" ", "_") + "_" + state + ".parquet")
-    return data
-    # return gpd.read_parquet("Data/" + county + "_County_" + state + ".parquet")
 
 def clean_data(gdf):
     """
@@ -272,23 +242,6 @@ def clean_data(gdf):
         "B03002_009E": "two_or_more_non_hispanic",
         "B03002_012E": "hispanic",
         "B19013_001E": "median_income",
-        # "B19001B_001E": "Total (Income)",
-        # "B19001B_002E": "Less than $10,000",
-        # "B19001B_003E": "$10,000 to $14,999",
-        # "B19001B_004E": "$15,000 to $19,999",
-        # "B19001B_005E": "$20,000 to $24,999",
-        # "B19001B_006E": "$25,000 to $29,999",
-        # "B19001B_007E": "$30,000 to $34,999",
-        # "B19001B_008E": "$35,000 to $39,999",
-        # "B19001B_009E": "$40,000 to $44,999",
-        # "B19001B_010E": "$45,000 to $49,999",
-        # "B19001B_011E": "$50,000 to $59,999",
-        # "B19001B_012E": "$60,000 to $74,999",
-        # "B19001B_013E": "$75,000 to $99,999",
-        # "B19001B_014E": "$100,000 to $124,999",
-        # "B19001B_015E": "$125,000 to $149,999",
-        # "B19001B_016E": "$150,000 to $199,999",
-        # "B19001B_017E": "$200,000 or More"
         })
     gdf = gdf.drop(columns=["state", "county"])
 
@@ -296,10 +249,6 @@ def clean_data(gdf):
 
     # Add a column with the tract's centroid
     gdf["centroid"] = gdf.centroid
-
-    # # Combine native, pacific , other, and two or more into "other"
-    # gdf["other_non_hispanic"] = gdf["other_non_hispanic"] + gdf["native_non_hispanic"] + gdf["pacific_non_hispanic"] + gdf["two_or_more_non_hispanic"]
-    # gdf = gdf.drop(columns=["native_non_hispanic", "pacific_non_hispanic", "two_or_more_non_hispanic"])
 
     # Drop rows with missing median income values
     gdf = gdf.dropna(subset=["median_income"])
@@ -329,5 +278,26 @@ def check_data_validity(gdf):
     assert non_hispanic.sum(axis=1).equals(gdf["total_non_hispanic"])
     assert gdf[["total_non_hispanic", "hispanic"]].sum(axis=1).equals(gdf["total_population_race"])
     assert gdf["total_population_race"].equals(gdf["total_population"])
+
+def get_cities_data(strict_within=True):
+    cities = pd.read_csv("city_list.csv")
+    places = place_table()
+    acs = connect_acs
+
+    data = []
+    for _, city in cities.iterrows():
+        key = city["NAME"]
+        state = state_abbrev(city["STNAME"])
+        type = place_type(city["NAME"], state, places)
+        colloq = colloquial(key)
+        data_i = get_city_data(key, state, type, acs, strict_within=strict_within)
+        data_i["colloquial_name"] = colloq
+        data_i["place_name"] = key
+        data_i["state"] = state
+        data_i["region"] = (data_i["GEOID"].rank(pct=True) // 0.1 + 1).astype(int)
+        data.append(data_i)
+
+    data = pd.concat(data)
+    return data
 
 # %%

@@ -1,0 +1,2 @@
+ Label
+B19013E_001E "Estimate!!Median household income in the past 12 months (in 2019 inflation-adjusted dollars)"
