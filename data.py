@@ -3,11 +3,11 @@ import pandas as pd
 import geopandas as gpd
 import cenpy as cen
 
-def connect_acs():
+def connect_acs(year=2019):
     """
     Establishes connection to American Community Survey data API
     """
-    acs = cen.products.ACS()
+    acs = cen.products.ACS(year=year)
     return acs
 
 VARS = ["B01003_001E",
@@ -75,18 +75,6 @@ def colloquial(key):
         return "Lexington"
 
     city = key
-
-    # # Remove " city" from key
-    # city = city.replace(" city", "")
-
-    # # Remove " municipality" from key
-    # city = city.replace(" municipality", "")
-
-    # # Remove " town" from key
-    # city = city.replace(" town", "")
-
-    # # Remove " balance" from key
-    # city = city.replace(" (balance)", "")
 
     # Split city into words
     city_split = city.split(" ")
@@ -279,10 +267,17 @@ def check_data_validity(gdf):
     assert gdf[["total_non_hispanic", "hispanic"]].sum(axis=1).equals(gdf["total_population_race"])
     assert gdf["total_population_race"].equals(gdf["total_population"])
 
-def get_cities_data(strict_within=True):
-    cities = pd.read_csv("city_list.csv")
+def get_cities_data(file="city_list.csv", strict_within=True):
+    """
+    Gets and cleans data for all cities listed in the given file
+    
+    Parameters:
+        file (str): Path to file containing list of cities
+            Required columns: NAME (ex: "San Antonio city"), STNAME (ex: "Texas")
+    """
+    cities = pd.read_csv(file)
     places = place_table()
-    acs = connect_acs
+    acs = connect_acs()
 
     data = []
     for _, city in cities.iterrows():
