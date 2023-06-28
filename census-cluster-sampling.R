@@ -44,7 +44,8 @@ places_pop_rank <- places_pop %>%
   filter(city_rank <= 100)
 
 # Download Census Place delineations for a state
-state_list = c('IL') # PARAMETERIZE
+state_list = c('48') #c('17') # PARAMETERIZE
+
 places_geo <- places(state = state_list, cb = TRUE, year = 2020) %>%
   st_transform(4326) %>%
   inner_join(., places_pop_rank, by = c('GEOID'='placeid')) 
@@ -56,7 +57,8 @@ tract_data_race <- get_acs(year = 2020, geography = "tract",
                            survey = 'acs5', variables = c('B03002_012', 'B03002_003', 'B03002_004', 'B03002_005', 'B03002_006', 'B03002_007', 'B03002_008', 'B03002_009'),
                            summary_var = 'B03002_001', 
                            cache_table = TRUE, 
-                           state = '17', county = '031',  # PARAMETERIZE
+                           state = '48', county = '029',
+                           #state = '17', county = '031',  # PARAMETERIZE
                            geometry = FALSE) %>% 
   rename_all(list(tolower)) %>%
   mutate(variable_label = case_when(variable == 'B03002_012' ~ 'Latino',
@@ -86,7 +88,8 @@ tract_data_race <- get_acs(year = 2020, geography = "tract",
 tract_data_geo <- get_acs(year = 2020, geography = "tract", 
                           survey = 'acs5', variables = c('B19013_001'),
                           cache_table = TRUE, 
-                          state = '17', county = '031',   # PARAMETERIZE
+                          state = '48', county = '029',
+                          #state = '17', county = '031',   # PARAMETERIZE
                           geometry = TRUE) %>% 
   rename_all(list(tolower))  %>%
   select(geoid, estimate, geometry) %>%
@@ -164,7 +167,8 @@ tract_data_clusters <- tract_data %>% st_make_valid() %>%
 bg_data_geo <- get_acs(year = 2020, geography = "block group", 
                        survey = 'acs5', variables = c('B19013_001'),
                        cache_table = TRUE, 
-                       state = '17', county = '031',  # PARAMETERIZE
+                       state = '48', county = '029',
+                       #state = '17', county = '031',  # PARAMETERIZE
                        geometry = TRUE) %>% 
   rename_all(list(tolower)) 
 
@@ -175,7 +179,8 @@ bg_data_race <- get_acs(year = 2020, geography = "block group",
                         survey = 'acs5', variables = c('B03002_012', 'B03002_003', 'B03002_004', 'B03002_005', 'B03002_006', 'B03002_007', 'B03002_008', 'B03002_009'),
                         summary_var = 'B03002_001', 
                         cache_table = TRUE, 
-                        state = '17', county = '031',  # PARAMETERIZE
+                        state = '48', county = '029',
+                        #state = '17', county = '031',  # PARAMETERIZE
                         geometry = FALSE) %>% 
   rename_all(list(tolower)) %>%
   mutate(tractid = str_sub(geoid, start = 1, end =  11)) %>%
@@ -237,7 +242,8 @@ bg_data_income <- get_acs(year = 2020, geography = "block group",
                           survey = 'acs5', variables = c('B19013_001'),
                           summary_var = 'B01003_001',
                           cache_table = TRUE,
-                          state = '17', county = '031',  # PARAMETERIZE
+                          state = '48', county = '029',
+                          #state = '17', county = '031',  # PARAMETERIZE
                           geometry = FALSE) %>%
   mutate(variable_label = case_when(variable == 'B19013_001' ~ 'Median household income in the past 12 months')) %>%
   rename_all(list(tolower)) %>%
@@ -250,7 +256,8 @@ bg_data_income <- get_acs(year = 2020, geography = "block group",
 tract_data_income <- get_acs(year = 2020, geography = "tract", 
                              survey = 'acs5', variables = c('B19013_001'),
                              cache_table = TRUE,
-                             state = '17', county = '031',  # PARAMETERIZE
+                             state = '48', county = '029',
+                             #state = '17', county = '031',  # PARAMETERIZE
                              geometry = FALSE) %>%
   rename_all(list(tolower)) %>%
   rename(median_household_income_tract = estimate) %>%
@@ -292,6 +299,9 @@ bg_data <- bg_data %>%
 # -------------------------------------------------------------------------
 
 # Race distribution of city
+plurality_tract_race_list <- tract_data_clusters %>% st_drop_geometry() %>% 
+  select(cluster_plurality_race) %>% distinct() %>% pull()
+
 city_distribution <- bg_data %>% st_drop_geometry() %>%
   summarize_at(vars(race_population_white, race_population_black, race_population_latino, race_population_asian_pacific_islander, race_population_multiracial_other, race_population_native_american), 
                list(sum)) %>%
@@ -303,7 +313,7 @@ city_distribution <- bg_data %>% st_drop_geometry() %>%
                           race == "race_population_native_american" ~ 'Native American',
                           race == "race_population_asian_pacific_islander" ~ 'Asian Pacific Islander',
                           race == "race_population_multiracial_other" ~ 'Multiracial other')) %>%
-  filter(race %in% race_list) %>%
+  filter(race %in% plurality_tract_race_list ) %>% ## FILTERS OUT RACES WITHOUT A PLURALITY TRACT -- ONE FIX IS USE BLOCK GROUPS INSTEAD OF TRACTS FOR REGIONALIZATION
   mutate(share = value / sum(value),
          share = ifelse(share < .1, .1, share),
          cluster_count = round(10*share,0)) 
@@ -317,6 +327,9 @@ bg_data_clusters <- bg_data %>%
               select(geoid, cluster_plurality_race, cluster_group),
             by = c('tractid' = 'geoid'))
 
+ggplot() +
+  geom_sf(data = bg_data_clusters, aes(fill = cluster_plurality_race))
+
 sample_points <- purrr::map_dfr(
   .x = city_distribution %>% select(race) %>% pull(), 
   .f = function(i) {
@@ -325,7 +338,12 @@ sample_points <- purrr::map_dfr(
       filter(race == i) %>% 
       select(cluster_count) %>% pull()
     
-    k_clusters <- stats::kmeans(x = bg_data_clusters %>% filter(cluster_plurality_race == i) %>% st_centroid() %>% st_coordinates(), 
+    bg_data_clusters %>% 
+      filter(cluster_plurality_race == i)
+    
+    k_clusters <- stats::kmeans(x = bg_data_clusters %>% 
+                                  filter(cluster_plurality_race == i) %>% 
+                                  st_centroid() %>% st_coordinates(), 
                                 centers = num_points)
     
     race_block_groups <- bg_data_clusters %>% 
@@ -338,7 +356,8 @@ sample_points <- purrr::map_dfr(
       st_point_on_surface() %>%
       mutate(cluster_id_race = i,
              cluster_id = paste0(gsub("\\s+|\\.|\\/|-|,|\\+", "", tolower(i)),'_',cluster_race)) %>%
-      select(cluster_id_race, cluster_id, geometry) 
+      select(cluster_id_race, cluster_id, geometry) %>% 
+      st_transform(4326) 
   })
 
 bg_data_sample <- sample_points %>% 
@@ -348,6 +367,7 @@ bg_data_sample <- sample_points %>%
   st_transform(4326)
 
 bg_data_100 <- bg_data_geo %>%
+  st_transform(4326) %>%
   select(geoid) %>%
   inner_join(., bg_data_sample %>% 
               select(geoid, cluster_id_race, cluster_id, 
@@ -359,6 +379,7 @@ bg_data_100 <- bg_data_geo %>%
             by = c('geoid' = 'geoid')) 
 
 names(bg_data_sample)
+
 
 # QC Check ----------------------------------------------------------------
 
@@ -382,15 +403,47 @@ clusters <- bg_data_clusters %>%
   ungroup()
 
 ggplot() +
-  geom_sf(data = clusters, aes(fill = cluster_plurality_race)) + 
-  geom_sf(data = bg_data_100, aes( fill = cluster_id_race), color = 'white') + 
+  geom_sf(data = clusters, aes(fill = cluster_plurality_race), alpha = .2)+ 
+  geom_sf(data = bg_data_100, aes(fill = cluster_id_race), alpha = 1, color = 'white') + 
   geom_sf(data = sample_points, color = 'black') +
   theme_void()
   
-
-
 # Appendix ----------------------------------------------------------------
 
+places_list <- places(state = c('17','48') , cb = TRUE, year = 2020) %>%
+  st_transform(4326) %>%
+  inner_join(., places_pop_rank, by = c('GEOID'='placeid')) %>%
+  rename_all(tolower) %>%
+  select(geoid, name, popestimate2020, popestimate2021, popestimate2022, city_rank, geometry)
+
+state_xwalk <- tidycensus::fips_codes %>%
+  mutate(county_fips = paste0(state_code,county_code))
+
+us_county <- get_acs(year = 2020, geography = "county", variables = "B01003_001", 
+                     geometry = TRUE, shift_geo = FALSE) %>%
+  rename_all(tolower) %>% 
+  select(geoid, estimate) %>%
+  rename(county_fips = geoid) %>%
+  left_join(., state_xwalk, by = c('county_fips' = 'county_fips'))
+
+us_county <- us_county %>% 
+  select(state, county_fips, state_code, county_code) %>%
+  st_transform(4326) %>%
+  st_join(., places_list %>% 
+            st_transform(4326), left = FALSE)
+
+## COME UP WITH METHOD TO BUILD A DICT OF PLACES AND STATE AND COUNTY AS KEYS
+us_county %>%
+  select(geoid, name, state_code, county_code) %>%
+  st_drop_geometry() %>% as.list() 
+
+
+acs_data <- map2_dfr(.x = state_county_list[[1]], .y = state_county_list[[2]], .f = function(x , y) {
+  get_acs(year = 2020, geography = "tract", survey = 'acs5',
+          variables = acs5_vars_selected,
+          state = x, county = y)
+  })
+  
 
 # z <- bg_data_clusters %>%
 #   st_transform(3395) %>%
