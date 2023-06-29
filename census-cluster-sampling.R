@@ -342,9 +342,6 @@ sample_points <- purrr::map_dfr(
       filter(race == i) %>% 
       select(cluster_count) %>% pull()
     
-    bg_data_clusters %>% 
-      filter(cluster_plurality_race == i)
-    
     k_clusters <- stats::kmeans(x = bg_data_clusters %>% 
                                   filter(cluster_plurality_race == i) %>% 
                                   st_centroid() %>% st_coordinates(), 
@@ -354,13 +351,14 @@ sample_points <- purrr::map_dfr(
       filter(cluster_plurality_race == i) %>%
       mutate(cluster_race = k_clusters$cluster) %>%
       st_make_valid() %>%
-      group_by(cluster_race) %>%
+      group_by(cluster_race) %>% # cluster_group,
       dplyr::summarize(geometry = st_union(geometry)) %>%
       ungroup() %>%
       st_point_on_surface() %>%
-      mutate(cluster_id_race = i,
-             cluster_id = paste0(gsub("\\s+|\\.|\\/|-|,|\\+", "", tolower(i)),'_',cluster_race)) %>%
-      select(cluster_id_race, cluster_id, geometry) %>% 
+      mutate(
+        cluster_id_race = i,
+        cluster_id = paste0(gsub("\\s+|\\.|\\/|-|,|\\+", "", tolower(i)),'_',cluster_race)) %>%
+      select(cluster_id_race, cluster_id,  geometry) %>% 
       st_transform(4326) 
   })
 
@@ -496,18 +494,18 @@ cluster_distribution <- bg_data_100 %>%
   ungroup() %>%
   mutate(median_household_income_noise = median_household_income_noise + adj_residual) %>% 
   select(cluster_id_race, cluster_id, race, median_household_income_noise)
-  
+
+
 sample_qc2 <- cluster_distribution %>%
-  mutate(household_income_bucket = case_when(median_household_income < 25000 ~ '1 - $0-25k',
-                                             median_household_income >= 25000 & median_household_income < 50000 ~ '2 - $25-50k',
-                                             median_household_income >= 50000 & median_household_income < 75000 ~ '3 - $50-75k',
-                                             median_household_income >= 75000 & median_household_income < 100000 ~ '4 - $75-100k',
-                                             median_household_income >= 100000 & median_household_income < 150000 ~ '5 - $100-150k',
-                                             median_household_income >= 150000 ~ '6 - $150k+'),
+  mutate(household_income_bucket = case_when(median_household_income_noise < 25000 ~ '1 - $0-25k',
+                                             median_household_income_noise >= 25000 & median_household_income_noise < 50000 ~ '2 - $25-50k',
+                                             median_household_income_noise >= 50000 & median_household_income_noise < 75000 ~ '3 - $50-75k',
+                                             median_household_income_noise >= 75000 & median_household_income_noise < 100000 ~ '4 - $75-100k',
+                                             median_household_income_noise >= 100000 & median_household_income_noise < 150000 ~ '5 - $100-150k',
+                                             median_household_income_noise >= 150000 ~ '6 - $150k+'),
          count = 1) %>%
   group_by(race, household_income_bucket) %>%
-  summarize_at(vars(count),
-               list(sum)) %>%
+  summarize_at(vars(count), list(sum)) %>%
   ungroup() %>%
   mutate(share = count/sum(count)) %>%
   ungroup()  %>%
@@ -519,10 +517,13 @@ sample_qc2 <- cluster_distribution %>%
 
 ggplot(data = qc, aes(x = household_income_bucket, y = city_shr, group = race)) +
   geom_bar(aes(fill = race, color = race), alpha = .9, stat="identity") + 
+  theme(legend.position = 'bottom') +
 ggplot(data = qc, aes(x = household_income_bucket, y = samp_shr, group = race)) +
   geom_bar(aes(fill = race, color = race), alpha = .9, stat="identity") +
+  theme(legend.position = 'bottom') +
 ggplot(data = sample_qc2, aes(x = household_income_bucket, y = samp_shr, group = race)) +
-  geom_bar(aes(fill = race, color = race), alpha = .9, stat="identity") 
+  geom_bar(aes(fill = race, color = race), alpha = .9, stat="identity") +
+  theme(legend.position = 'bottom') 
 
 # QC Check ----------------------------------------------------------------
 
@@ -609,3 +610,4 @@ for (i in unique(city_cty_dict$geoid)) {
 #   ungroup() %>%
 #   st_as_sf(coords = c("lon", "lat"),
 #            crs = 3395, agr = "constant")
+  
