@@ -313,11 +313,15 @@ city_distribution <- bg_data %>% st_drop_geometry() %>%
                           race == "race_population_native_american" ~ 'Native American',
                           race == "race_population_asian_pacific_islander" ~ 'Asian Pacific Islander',
                           race == "race_population_multiracial_other" ~ 'Multiracial other')) %>%
-  filter(race %in% plurality_tract_race_list ) %>% ## FILTERS OUT RACES WITHOUT A PLURALITY TRACT -- ONE FIX IS USE BLOCK GROUPS INSTEAD OF TRACTS FOR REGIONALIZATION
+  filter(race %in% plurality_tract_race_list) %>% ## FILTERS OUT RACES WITHOUT A PLURALITY TRACT -- ONE FIX IS USE BLOCK GROUPS INSTEAD OF TRACTS FOR REGIONALIZATION
   mutate(share = value / sum(value),
-         share = ifelse(share < .1, .1, share),
-         cluster_count = round(10*share,0)) 
-
+         #share = ifelse(share < .1, .1, share), ## FORCES < 10% population groups to 10%
+         cluster_count = ceiling(10*share)) %>% ## NORMALIZE COUNT TO 10
+  uncount(cluster_count) %>%
+  sample_n(size = 10) %>%
+  group_by(race) %>%
+  tally(name = 'cluster_count')
+  
 # Block groups data
 bg_data_clusters <- bg_data %>% 
   st_make_valid() %>%
@@ -363,23 +367,162 @@ sample_points <- purrr::map_dfr(
 bg_data_sample <- sample_points %>% 
   st_transform(3395) %>%
   st_join(., bg_data %>% st_transform(3395), left = TRUE,
-          join = st_nn, k = 10) %>%
-  st_transform(4326)
+          join = st_nn, k = 10) %>% 
+  st_transform(4326)# %>%
+  #st_drop_geometry() %>%
+  # group_by(cluster_id) %>%
+  # sample_frac(size = .5, weight = total_population) %>%
+  # ungroup() 
 
 bg_data_100 <- bg_data_geo %>%
   st_transform(4326) %>%
   select(geoid) %>%
   inner_join(., bg_data_sample %>% 
               select(geoid, cluster_id_race, cluster_id, 
-                     total_population, median_household_income, 
+                     total_population, median_household_income, household_income_bucket,
                      plurality_race, plurality_race_population, plurality_race_share,
                      race_share_white, race_share_black, race_share_latino, race_share_asian_pacific_islander, race_share_multiracial_other, race_share_native_american, 
-                     race_population_white, race_population_black, race_population_latino, race_population_asian_pacific_islander, race_population_multiracial_other, race_population_native_american) %>% 
-              st_drop_geometry() ,
+                     race_population_white, race_population_black, race_population_latino, race_population_asian_pacific_islander, race_population_multiracial_other, race_population_native_american) %>%
+               st_drop_geometry(),
             by = c('geoid' = 'geoid')) 
 
 names(bg_data_sample)
 
+
+# QC ----------------------------------------------------------------------
+
+# City totals
+control_qc <- bg_data %>%
+  st_drop_geometry() %>%
+  group_by(household_income_bucket) %>%
+  summarize_at(vars(race_population_white, race_population_black, race_population_latino, race_population_asian_pacific_islander, race_population_multiracial_other, race_population_native_american),
+               list(sum)) %>%
+  pivot_longer(cols =c("race_population_white", "race_population_black", "race_population_latino","race_population_asian_pacific_islander", "race_population_multiracial_other", "race_population_native_american"),
+               names_to = c("race")) %>%
+  mutate(race = case_when(race == "race_population_latino" ~ 'Latino',
+                          race == "race_population_white" ~ 'White',
+                          race == "race_population_black" ~ 'Black',
+                          race == "race_population_native_american" ~ 'Native American',
+                          race == "race_population_asian_pacific_islander" ~ 'Asian Pacific Islander',
+                          race == "race_population_multiracial_other" ~ 'Multiracial other')) %>%
+  group_by(household_income_bucket) %>%
+  mutate(share = value/sum(value)) %>%
+  ungroup() %>%
+  rename(city_pop = value,
+         city_shr = share)
+
+# Actual sample
+sample_qc <- bg_data_100 %>%
+  st_drop_geometry() %>%
+  group_by(household_income_bucket) %>%
+  summarize_at(vars(race_population_white, race_population_black, race_population_latino, race_population_asian_pacific_islander, race_population_multiracial_other, race_population_native_american),
+               list(sum)) %>%
+  ungroup() %>%
+  pivot_longer(cols =c("race_population_white", "race_population_black", "race_population_latino","race_population_asian_pacific_islander", "race_population_multiracial_other", "race_population_native_american"),
+               names_to = c("race")) %>%
+  mutate(race = case_when(race == "race_population_latino" ~ 'Latino',
+                          race == "race_population_white" ~ 'White',
+                          race == "race_population_black" ~ 'Black',
+                          race == "race_population_native_american" ~ 'Native American',
+                          race == "race_population_asian_pacific_islander" ~ 'Asian Pacific Islander',
+                          race == "race_population_multiracial_other" ~ 'Multiracial other')) %>%
+  group_by(household_income_bucket) %>%
+  mutate(share = value/sum(value)) %>%
+  ungroup()  %>%
+  rename(samp_pop = value,
+         samp_shr = share)
+
+qc <- control_qc %>%
+  left_join(., sample_qc , by = c('household_income_bucket'='household_income_bucket',
+                                  'race'='race')) %>%
+  mutate(difference = city_shr - samp_shr)
+
+ggplot(data = qc, aes(x = household_income_bucket, y = city_shr, group = race)) +
+    geom_smooth(linewidth = 1.5, aes(fill = race, color = race), se = FALSE,
+                method = 'loess', span = 0.7, alpha = .9) + 
+ggplot(data = qc, aes(x = household_income_bucket, y = samp_shr, group = race)) +
+  geom_smooth(linewidth = 1.5, aes(fill = race, color = race), se = FALSE,
+              method = 'loess', span = 0.7, alpha = .9) 
+
+ggplot(data = qc, aes(x = household_income_bucket, y = city_shr, group = race)) +
+  geom_bar(aes(fill = race, color = race), alpha = .9, stat="identity") + 
+ggplot(data = qc, aes(x = household_income_bucket, y = samp_shr, group = race)) +
+  geom_bar(aes(fill = race, color = race), alpha = .9, stat="identity") 
+
+# -------------------------------------------------------------------------
+
+# Synthetic generated individual data
+cluster_distribution <- bg_data_100 %>%
+  st_drop_geometry() %>%
+  group_by(cluster_id_race, cluster_id, median_household_income) %>%
+  summarize_at(vars(race_population_white, race_population_black, race_population_latino, race_population_asian_pacific_islander, race_population_multiracial_other, race_population_native_american),
+               list(sum)) %>%
+  ungroup() %>%
+  pivot_longer(
+    cols =c("race_population_white", "race_population_black", "race_population_latino","race_population_asian_pacific_islander", "race_population_multiracial_other", "race_population_native_american"),
+               names_to = c("race")) %>%
+  mutate(race = case_when(race == "race_population_latino" ~ 'Latino',
+                          race == "race_population_white" ~ 'White',
+                          race == "race_population_black" ~ 'Black',
+                          race == "race_population_native_american" ~ 'Native American',
+                          race == "race_population_asian_pacific_islander" ~ 'Asian Pacific Islander',
+                          race == "race_population_multiracial_other" ~ 'Multiracial other')) %>%
+  mutate(median_household_income_wt = median_household_income * value) %>%
+  group_by(cluster_id_race, cluster_id, race) %>%
+  summarize_at(vars(median_household_income_wt, value),
+               list(sum)) %>%
+  ungroup() %>%
+  mutate(median_household_income = median_household_income_wt/value) %>%
+  select(-one_of(c('median_household_income_wt'))) %>%
+  group_by(cluster_id) %>%
+  mutate(share = value/sum(value),
+         count = round(value/sum(value) * 20, 0)) %>%
+  ungroup() %>%
+  filter(count > 0) %>%
+  type.convert(as.is = TRUE) %>% 
+  uncount(count) %>%
+  mutate(random_decimal = runif(n = nrow(.), min = 0, max = 1),
+         random_normal = 1 + rnorm(n = nrow(.), sd = .1)) %>%
+  group_by(cluster_id) %>%
+  mutate(rank = row_number(desc(random_decimal))) %>%
+  ungroup() %>%
+  filter(rank <= 10) %>%
+  mutate(median_household_income_noise = median_household_income * random_normal,
+         residual =  median_household_income - median_household_income_noise) %>%
+  group_by(race, cluster_id) %>%
+  mutate(sum_residual = sum(residual),
+         count_residual = sum(n()),
+         adj_residual = sum_residual/ count_residual) %>%
+  ungroup() %>%
+  mutate(median_household_income_noise = median_household_income_noise + adj_residual) %>% 
+  select(cluster_id_race, cluster_id, race, median_household_income_noise)
+  
+sample_qc2 <- cluster_distribution %>%
+  mutate(household_income_bucket = case_when(median_household_income < 25000 ~ '1 - $0-25k',
+                                             median_household_income >= 25000 & median_household_income < 50000 ~ '2 - $25-50k',
+                                             median_household_income >= 50000 & median_household_income < 75000 ~ '3 - $50-75k',
+                                             median_household_income >= 75000 & median_household_income < 100000 ~ '4 - $75-100k',
+                                             median_household_income >= 100000 & median_household_income < 150000 ~ '5 - $100-150k',
+                                             median_household_income >= 150000 ~ '6 - $150k+'),
+         count = 1) %>%
+  group_by(race, household_income_bucket) %>%
+  summarize_at(vars(count),
+               list(sum)) %>%
+  ungroup() %>%
+  mutate(share = count/sum(count)) %>%
+  ungroup()  %>%
+  group_by(household_income_bucket) %>%
+  mutate(share = count/sum(count)) %>%
+  ungroup()  %>%
+  rename(samp_pop = count,
+         samp_shr = share)
+
+ggplot(data = qc, aes(x = household_income_bucket, y = city_shr, group = race)) +
+  geom_bar(aes(fill = race, color = race), alpha = .9, stat="identity") + 
+ggplot(data = qc, aes(x = household_income_bucket, y = samp_shr, group = race)) +
+  geom_bar(aes(fill = race, color = race), alpha = .9, stat="identity") +
+ggplot(data = sample_qc2, aes(x = household_income_bucket, y = samp_shr, group = race)) +
+  geom_bar(aes(fill = race, color = race), alpha = .9, stat="identity") 
 
 # QC Check ----------------------------------------------------------------
 
@@ -433,17 +576,26 @@ us_county <- us_county %>%
             st_transform(4326), left = FALSE)
 
 ## COME UP WITH METHOD TO BUILD A DICT OF PLACES AND STATE AND COUNTY AS KEYS
-us_county %>%
+
+city_cty_dict <- us_county %>%
   select(geoid, name, state_code, county_code) %>%
-  st_drop_geometry() %>% as.list() 
+  st_drop_geometry() 
 
-
-acs_data <- map2_dfr(.x = state_county_list[[1]], .y = state_county_list[[2]], .f = function(x , y) {
-  get_acs(year = 2020, geography = "tract", survey = 'acs5',
-          variables = acs5_vars_selected,
-          state = x, county = y)
-  })
+for (i in unique(city_cty_dict$geoid)) {
+  city_cty_dict %>% filter(geoid == i) %>%
+    select(name) %>% pull() %>% unique() %>% print()
+  city_list <- city_cty_dict %>% filter(geoid == i) %>%
+    select(state_code, county_code) 
+  state_list <- city_list%>% select(state_code) %>% pull()
+  county_list <- city_list %>% select(county_code) %>% pull()
   
+  acs_data <- map2_dfr(.x = state_list, .y = county_list, .f = function(x , y) {
+    get_acs(year = 2020, geography = "tract", survey = 'acs5',
+            variables = acs5_vars_selected,
+            state = x, county = y)
+  })
+
+}
 
 # z <- bg_data_clusters %>%
 #   st_transform(3395) %>%
@@ -457,4 +609,3 @@ acs_data <- map2_dfr(.x = state_county_list[[1]], .y = state_county_list[[2]], .
 #   ungroup() %>%
 #   st_as_sf(coords = c("lon", "lat"),
 #            crs = 3395, agr = "constant")
-  
