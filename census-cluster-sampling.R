@@ -34,7 +34,7 @@ places_pop <- read_csv('https://www2.census.gov/programs-surveys/popest/datasets
 # Filter to largest 100 Places
 places_pop_rank <- places_pop %>%
   rename_all(tolower) %>% 
-  filter(sumlev %in% c('162')) %>%
+  filter(sumlev %in% c('162')) %>% # Filters out the states form the list
   select(state, place, name, sumlev, stname, popestimate2020, popestimate2021, popestimate2022 ) %>%
   mutate(state = str_pad(state, width=2, side="left", pad="0"),
          place = str_pad(place, width=5, side="left", pad="0"),
@@ -71,7 +71,7 @@ tract_data_race <- get_acs(year = 2020, geography = "tract",
                                     variable == 'B03002_009' ~ 'Multiracial other',
                                     TRUE ~ as.character(''))) %>%
   group_by(geoid, variable_label, summary_est) %>% 
-  summarize_at(.vars = vars(estimate), .funs = list(sum)) %>%
+  summarize_at(.vars = vars(estimate), .funs = list(sum)) %>% # What do "vars(estimate)" and "list(sum)" do?
   ungroup() %>%
   mutate(plurality_race_share = estimate/summary_est) %>%
   group_by(geoid) %>%
@@ -97,7 +97,7 @@ tract_data_geo <- get_acs(year = 2020, geography = "tract",
 
 # Join data and geometries
 tract_data <- tract_data_geo %>%
-  left_join(., tract_data_race, by = c('geoid' = 'geoid')) %>%
+  left_join(., tract_data_race, by = c('geoid' = 'geoid')) %>% # What does the "geoid" part of this line do?
   filter(!is.na(plurality_race))  %>%
   st_transform(4326) %>%
   st_join(., places_geo %>% st_transform(4326), left = FALSE)
