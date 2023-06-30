@@ -381,6 +381,10 @@ sample_points <- purrr::map_dfr(
       st_transform(4326) 
   })
 
+ggplot() +
+  geom_sf(data = bg_data_clusters, aes(fill = cluster_plurality_race)) +
+  geom_sf(data = sample_points, color = 'black')
+
 bg_data_sample <- sample_points %>% 
   st_transform(3395) %>%
   st_join(., bg_data %>% st_transform(3395), left = TRUE,
@@ -413,7 +417,8 @@ bg_data_all <- bg_data %>% st_transform(3395) %>%
 names(bg_data_all)
 
 ggplot() +
-  geom_sf(data = bg_data_all, aes(fill = cluster_id), color = 'white')
+  geom_sf(data = bg_data_all, aes(fill = cluster_id), color = 'white') +
+  theme_void()
 
 
 # QC ----------------------------------------------------------------------
@@ -438,8 +443,7 @@ control_qc <- bg_data %>%
   rename(city_pop = value,
          city_shr = share)
 
-# Actual sample
-sample_qc <- bg_data_100 %>%
+sample_qc_1a <- bg_data_100 %>%
   st_drop_geometry() %>%
   group_by(household_income_bucket) %>%
   summarize_at(vars(race_population_white, race_population_black, race_population_latino, race_population_asian_pacific_islander, race_population_multiracial_other, race_population_native_american),
@@ -459,22 +463,30 @@ sample_qc <- bg_data_100 %>%
   rename(samp_pop = value,
          samp_shr = share)
 
-qc <- control_qc %>%
-  left_join(., sample_qc , by = c('household_income_bucket'='household_income_bucket',
-                                  'race'='race')) %>%
-  mutate(difference = city_shr - samp_shr)
+sample_qc_2a <- bg_data_all %>%
+  st_drop_geometry() %>%
+  group_by(household_income_bucket) %>%
+  summarize_at(vars(race_population_white, race_population_black, race_population_latino, race_population_asian_pacific_islander, race_population_multiracial_other, race_population_native_american),
+               list(sum)) %>%
+  ungroup() %>%
+  pivot_longer(cols =c("race_population_white", "race_population_black", "race_population_latino","race_population_asian_pacific_islander", "race_population_multiracial_other", "race_population_native_american"),
+               names_to = c("race")) %>%
+  mutate(race = case_when(race == "race_population_latino" ~ 'Latino',
+                          race == "race_population_white" ~ 'White',
+                          race == "race_population_black" ~ 'Black',
+                          race == "race_population_native_american" ~ 'Native American',
+                          race == "race_population_asian_pacific_islander" ~ 'Asian Pacific Islander',
+                          race == "race_population_multiracial_other" ~ 'Multiracial other')) %>%
+  group_by(household_income_bucket) %>%
+  mutate(share = value/sum(value)) %>%
+  ungroup()  %>%
+  rename(samp_pop = value,
+         samp_shr = share)
 
-ggplot(data = qc, aes(x = household_income_bucket, y = city_shr, group = race)) +
-    geom_smooth(linewidth = 1.5, aes(fill = race, color = race), se = FALSE,
-                method = 'loess', span = 0.7, alpha = .9) + 
-ggplot(data = qc, aes(x = household_income_bucket, y = samp_shr, group = race)) +
-  geom_smooth(linewidth = 1.5, aes(fill = race, color = race), se = FALSE,
-              method = 'loess', span = 0.7, alpha = .9) 
-
-ggplot(data = qc, aes(x = household_income_bucket, y = city_shr, group = race)) +
-  geom_bar(aes(fill = race, color = race), alpha = .9, stat="identity") + 
-ggplot(data = qc, aes(x = household_income_bucket, y = samp_shr, group = race)) +
-  geom_bar(aes(fill = race, color = race), alpha = .9, stat="identity") 
+# qc <- control_qc %>%
+#   left_join(., sample_qc_1a , by = c('household_income_bucket'='household_income_bucket',
+#                                   'race'='race')) %>%
+#   mutate(difference = city_shr - samp_shr)
 
 # -------------------------------------------------------------------------
 
@@ -525,7 +537,7 @@ cluster_distribution <- bg_data_100 %>%
   select(cluster_id_race, cluster_id, race, median_household_income_noise)
 
 
-sample_qc2 <- cluster_distribution %>%
+sample_qc_1b <- cluster_distribution %>%
   mutate(household_income_bucket = case_when(median_household_income_noise < 25000 ~ '1 - $0-25k',
                                              median_household_income_noise >= 25000 & median_household_income_noise < 50000 ~ '2 - $25-50k',
                                              median_household_income_noise >= 50000 & median_household_income_noise < 75000 ~ '3 - $50-75k',
@@ -590,8 +602,8 @@ semistratified_distribution <- bg_data_all %>%
   ungroup() %>%
   mutate(median_household_income_noise = median_household_income_noise + adj_residual) %>% 
   select(cluster_id_race, cluster_id, race, median_household_income_noise)
-
-sample_qc3 <- semistratified_distribution %>%
+?uncount
+sample_qc_2b <- semistratified_distribution %>%
   mutate(household_income_bucket = case_when(median_household_income_noise < 25000 ~ '1 - $0-25k',
                                              median_household_income_noise >= 25000 & median_household_income_noise < 50000 ~ '2 - $25-50k',
                                              median_household_income_noise >= 50000 & median_household_income_noise < 75000 ~ '3 - $50-75k',
@@ -613,10 +625,30 @@ sample_qc3 <- semistratified_distribution %>%
 # -------------------------------------------------------------------------
 
 
-ggplot(data = qc, aes(x = household_income_bucket, y = city_shr, group = race)) +
+
+ggplot(data = control_qc, aes(x = household_income_bucket, y = city_shr, group = race)) +
   geom_bar(aes(fill = race, color = race), alpha = .9, stat="identity") + 
-  theme(legend.position = 'bottom') +
-ggplot(data = qc, aes(x = household_income_bucket, y = samp_shr, group = race)) +
+  labs(x = '', y = '') + coord_flip() + theme_classic()  + guides(fill=guide_legend(nrow=3,byrow=TRUE)) + theme(legend.position = 'bottom') +
+ggplot(data = sample_qc_1a, aes(x = household_income_bucket, y = samp_shr, group = race)) +
+  geom_bar(aes(fill = race, color = race), alpha = .9, stat="identity") +
+  labs(x = '', y = '') + coord_flip() + theme_classic()  + guides(fill=guide_legend(nrow=3,byrow=TRUE)) + theme(legend.position = 'bottom') +
+ggplot(data = sample_qc_1b, aes(x = household_income_bucket, y = samp_shr, group = race)) +
+  geom_bar(aes(fill = race, color = race), alpha = .9, stat="identity") +
+  labs(x = '', y = '') + coord_flip() + theme_classic()  + guides(fill=guide_legend(nrow=3,byrow=TRUE)) + theme(legend.position = 'bottom')
+
+ggplot(data = control_qc, aes(x = household_income_bucket, y = city_shr, group = race)) +
+  geom_bar(aes(fill = race, color = race), alpha = .9, stat="identity") + 
+  labs(x = '', y = '') + coord_flip() + theme_classic()  + guides(fill=guide_legend(nrow=3,byrow=TRUE)) + theme(legend.position = 'bottom') + 
+ggplot(data = sample_qc_2a, aes(x = household_income_bucket, y = samp_shr, group = race)) +
+  geom_bar(aes(fill = race, color = race), alpha = .9, stat="identity") +
+  labs(x = '', y = '') + coord_flip() + theme_classic()  + guides(fill=guide_legend(nrow=3,byrow=TRUE)) + theme(legend.position = 'bottom') +
+ggplot(data = sample_qc_2b, aes(x = household_income_bucket, y = samp_shr, group = race)) +
+  geom_bar(aes(fill = race, color = race), alpha = .9, stat="identity") +
+  labs(x = '', y = '') + coord_flip() + theme_classic()  + guides(fill=guide_legend(nrow=3,byrow=TRUE)) + theme(legend.position = 'bottom') 
+
+
+
+ggplot(data = sample, aes(x = household_income_bucket, y = samp_shr, group = race)) +
   geom_bar(aes(fill = race, color = race), alpha = .9, stat="identity") +
   theme(legend.position = 'bottom') +
 ggplot(data = sample_qc2, aes(x = household_income_bucket, y = samp_shr, group = race)) +
