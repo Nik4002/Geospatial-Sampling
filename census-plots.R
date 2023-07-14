@@ -24,26 +24,6 @@ library(lwgeom)
 
 # census_api_key("YOUR KEY GOES HERE", install = TRUE)
 readRenviron("~/.Renviron") # create an .Renviron > cd > touch .Renviron 
-# Create test data.
-data <- data.frame(
-  category=c("A", "B", "C"),
-  count=c(10, 60, 30)
-)
-
-# Compute percentages
-data$fraction = data$count / sum(data$count)
-
-# Compute the cumulative percentages (top of each rectangle)
-data$ymax = cumsum(data$fraction)
-
-# Compute the bottom of each rectangle
-data$ymin = c(0, head(data$ymax, n=-1))
-
-# Make the plot
-ggplot(data, aes(ymax=ymax, ymin=ymin, xmax=4, xmin=3, fill=category)) +
-  geom_rect() +
-  coord_polar(theta="y") + # Try to remove that to understand how the chart is built initially
-  xlim(c(2, 4)) # Try to remove that to see how to make a pie chart
 
 # Join cluster assignments from bg_data_all to bg_data_race
 bg_plot_data_race <- inner_join(x = bg_data_race,
@@ -164,6 +144,8 @@ right_plots <- ggplot(cluster_plot_data_race %>% filter(plot_loc > 5), aes(ymax=
 left_plots + map + right_plots + 
   plot_layout(widths = c(1, 4, 1))
 
+map
+
 # Generate 100 random dots, 10 per cluster
 dots <- st_as_sf(sf::st_sample(clusters, size = c(10, 10, 10, 10, 10, 10, 10, 10, 10, 10), by_polygon = TRUE, type = 'random'))
 
@@ -180,7 +162,9 @@ people <- data.frame(semistratified_distribution) %>%
 
 # Assign people to each dot
 dots <- dots %>% select(geometry, id) %>% 
-  left_join(., people, by = c('id' = 'id'))
+  left_join(., people, by = c('id' = 'id')) %>%
+  mutate(race = factor(race, levels = c('White', 'Latino', 'Black', 'Asian Pacific Islander', 'Multiracial other', 'Native American'))) %>%
+  arrange(plot_loc, race)
   
 # ggplot() +
 #   geom_sf(data = bg_data_all, aes(fill = cluster_id)) +
@@ -208,9 +192,15 @@ dots <- dots %>% select(geometry, id) %>%
 #         panel.grid = element_blank())
 
 # Latest map
-ggplot() +
-  geom_sf(data = clusters, aes(fill = 'white')) +
+map2 <- ggplot() +
+  geom_sf(data = clusters, fill = 'gray', color = '#333333', alpha = 0.4, linewidth = 0.2) +
   geom_sf(data = dots, aes(color = race, size = median_household_income_noise, fill = 'white', alpha = 1)) +
   scale_fill_manual(values = color_vec) +
   scale_color_manual(values = color_vec) + 
-  theme_void()
+  theme_void() + 
+  theme(legend.position = 'none')
+
+left_plots + map2 + right_plots + 
+  plot_layout(widths = c(1, 4, 1))
+
+
