@@ -17,7 +17,7 @@ conflict_prefer("select", "dplyr")
 conflict_prefer("filter", "dplyr")
 options(tigris_use_cache = TRUE)
 
-install.packages('lwgeom')
+
 library(lwgeom)
 
 # -------------------------------------------------------------------------
@@ -80,7 +80,9 @@ cluster_plot_data_race <- bg_plot_data_race %>%
   group_by(cluster_id) %>%
   mutate(share = race_population / sum(race_population)) %>%
   ungroup() %>%
-  left_join(., clusters %>% select(cluster_id, plot_loc) %>% st_drop_geometry(), by = c('cluster_id'='cluster_id'), relationship = "many-to-many")
+  left_join(., clusters %>% select(cluster_id, plot_loc) %>% 
+              st_drop_geometry(), by = c('cluster_id'='cluster_id'), 
+            relationship = "many-to-many")
 # mutate(race_share_in_cluster = race_pop_in_cluster/cluster_pop)
 # filter(cluster_id == "latino_1") %>% mutate(ymax = cumsum(race_share_in_cluster)) %>% mutate(ymin = c(0, head(ymax, n=-1)))
 
