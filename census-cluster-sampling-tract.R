@@ -29,7 +29,8 @@ set.seed(seed = 100)
 # Directory ---------------------------------------------------------------
 
 wd_input = '/Users/nm/Desktop/Projects/work/skew-the-script/inputs.nosync'
-wd_output = '/Users/nm/Desktop/Projects/work/skew-the-script/outputs.nosync'
+# wd_output = '/Users/nm/Desktop/Projects/work/skew-the-script/outputs.nosync'
+wd_output = '/Users/nikhilpatel/Documents/Projects/Geospatial_Sampling/plots'
 
 # write_excel_csv(x = agglos_df, file = paste0(wd_output,'/data/agglomeration_data.csv'))
 
@@ -93,6 +94,10 @@ remaining_list <- county_place_map %>%
 # Run loop over places ----------------------------------------------------
 
 for (i in unique(remaining_list$geoid)) {
+  # i <- 1714000 # Chicago
+  # i <- 2255000 # New Orleans (wide city)
+  # i <- 1571550 # Urban Honolulu
+  # i <- 5548000 # Madison
   
   place_name <- county_place_map %>% filter(geoid == i) %>% st_drop_geometry() %>%
     select(name_short) %>% pull() %>% unique()
@@ -487,14 +492,32 @@ for (i in unique(remaining_list$geoid)) {
   
   # Roads and water ---------------------------------------------------------
   
+  buffer <- 0.1
+  bbox <- clusters %>% st_bbox()
+  width <- bbox$xmax - bbox$xmin
+  height <- bbox$ymax - bbox$ymin
+  bbox$xmax = bbox$xmax + buffer * width 
+  bbox$xmin = bbox$xmin - buffer * width
+  bbox$ymax = bbox$ymax + buffer * height
+  bbox$ymin = bbox$ymin - buffer * height
+  rm(width, height, buffer)
+  
+  bbox <- st_sfc(st_polygon(list(rbind(c(bbox$xmax, bbox$ymax), 
+                                       c(bbox$xmax, bbox$ymin), 
+                                       c(bbox$xmin, bbox$ymin), 
+                                       c(bbox$xmin, bbox$ymax), 
+                                       c(bbox$xmax, bbox$ymax)))))
+  st_crs(bbox) <- st_crs(4326)
+  rm(polygon_points, polygon)
+    
   roads_layer <- tigris::primary_roads(year = 2020) %>%
     st_transform(4326) %>% 
-    st_intersection(., clusters)
+    st_intersection(., bbox)
   
   water_layer <- map2_dfr(.x = state_fips_2, .y = county_fips_3, .f = function(x , y) {
     water_layer <- tigris::area_water(state = x, county = y, year = 2020) %>%
       st_transform(4326) %>% 
-      st_intersection(., clusters)
+      st_intersection(., bbox)
     })
   
   # -------------------------------------------------------------------------
@@ -690,12 +713,14 @@ for (i in unique(remaining_list$geoid)) {
   color_vec <- c('#F5870C', '#4472C4', '#06c049', '#70309F', '#fece0a', '#FF0000')
   
   (map <- ggplot() +
-      geom_sf(data = water_layer, color = '#1b95e0', fill = '#1b95e0', alpha = 1, linewidth = .6) +
-      geom_sf(data = clusters_10, fill = '#cfd0c5', alpha = .5, linewidth = .6) +
-      geom_sf(data = roads_layer, color = 'white', alpha = 1, linewidth = .4) +
+      geom_sf(data = bbox, fill = 'white', alpha = 0.5) + 
+      geom_sf(data = water_layer, color = '#d1edff', fill = '#d1edff', alpha = 1, linewidth = .6) +
+      geom_sf(data = clusters_10, alpha = 0, linewidth = .6) +
+      geom_sf(data = roads_layer, color = '#d2d2d2', alpha = 1, linewidth = .6) +
+      geom_sf(data = bbox, alpha = 0, linewidth = 1) + 
       geom_sf(data = clusters_10, color = '#333333', alpha = 0, linewidth = .4) +
-      geom_sf_text(data = clusters_10, aes(label = paste0('Region ',region_loc)), color =  '#333333',
-                   alpha = .8, size = 4, fontface='bold') +
+      # geom_sf_text(data = clusters_10, aes(label = paste0('Region ',region_loc)), color =  '#333333',
+      #              alpha = .8, size = 4, fontface='bold') +
       geom_sf(data = synthetic_sample_points, 
               aes(color = race, fill = race, size = median_household_income_noise ), 
               alpha = .8, linewidth = .2) + #size = 6.5,
@@ -713,7 +738,7 @@ for (i in unique(remaining_list$geoid)) {
       labs(subtitle = place_name) + 
       theme_void() + theme(legend.position = 'right',
                            legend.justification = "top",
-                           plot.subtitle = element_text(size = 13, face = 'bold', hjust = .5),
+                           plot.subtitle = element_text(size = 15, face = 'bold', hjust = .5),
                            legend.title = element_text(size = 10, face = 'bold'),
                            legend.text = element_text(size = 10),
                            panel.grid = element_blank(),
@@ -725,32 +750,65 @@ for (i in unique(remaining_list$geoid)) {
                            legend.box = 'vertical'
       ))
   
+  # map
+  
+  # -------------------------------------------------------------------------
+  
+  #   design <- "
+  #   AAAAAAB
+  #   AAAAAAB
+  #   AAAAAAB
+  #   CCCCCCC
+  #   DDDDDDD
+  # "
+  #   
+  #   (viz <- map + guide_area() + table_1_5 + table_6_10 + 
+  #       plot_layout(design = design, guides = "collect") )
+  #   
+  #   (pathfile = paste0(wd_output,'/',gsub("\\s+|\\.|\\/", "_", tolower(place_name) ),'.pdf'))
+  #   
+  #   # ggsave(plot = viz, filename = pathfile, width = 8.5, height = 11) # dpi = 300,
+  #   viz
+  
+  # map
+
+  edges <- st_bbox(clusters_10)
+  if (edges$xmax - edges$xmin > edges$ymax - edges$ymin) { # If width is greater than height
+    ggsave(plot = map + plot_layout(guides = 'collect'), 
+           filename = paste0(wd_output,'/',gsub("\\s+|\\.|\\/", "_", tolower(place_name) ), '_map', '.pdf'), 
+           width = 11, height = 8.5) # dpi = 300,
+  } else {
+    ggsave(plot = map + plot_layout(guides = 'collect'), 
+           filename = paste0(wd_output,'/',gsub("\\s+|\\.|\\/", "_", tolower(place_name) ), '_map', '.pdf'), 
+           width = 8.5, height = 11) # dpi = 300,
+  }
+  
   # -------------------------------------------------------------------------
   
   sample_table <- synthetic_sample_points %>% st_drop_geometry() %>%
     select(region_loc, id, race, median_household_income_noise) %>% arrange(region_loc, id) %>%
     mutate(median_household_income_noise = paste0('$',comma(median_household_income_noise, accuracy = 1L)) 
     ) %>%
-    mutate(race = case_when(race == 'Asian/Pacific Islander' ~ 'Asian/Pacific',
-                            race == 'Multiracial/Other' ~ 'Multi./Other',
-                            race == 'Native American' ~ 'Native Am.',
+    mutate(race = case_when(race == 'Asian/Pacific Islander' ~ 'Asian',
+                            race == 'Multiracial/Other' ~ 'Other',
+                            race == 'Native American' ~ 'Native',
                             TRUE ~ as.character(race)
     ) ) %>%
     rename(`Region` = region_loc,
-           `Home\nID` = id,
+           `ID` = id,
            `Race/\nethnicity` = race, 
            `Household\nincome` = median_household_income_noise) 
   
-  r1 <- sample_table %>% filter(`Region` == 1) %>% select(`Home\nID`, `Race/\nethnicity`, `Household\nincome`) 
-  r2 <- sample_table %>% filter(`Region` == 2) %>% select(`Home\nID`, `Race/\nethnicity`, `Household\nincome`) 
-  r3 <- sample_table %>% filter(`Region` == 3) %>% select(`Home\nID`, `Race/\nethnicity`, `Household\nincome`) 
-  r4 <- sample_table %>% filter(`Region` == 4) %>% select(`Home\nID`, `Race/\nethnicity`, `Household\nincome`) 
-  r5 <- sample_table %>% filter(`Region` == 5) %>% select(`Home\nID`, `Race/\nethnicity`, `Household\nincome`) 
-  r6 <- sample_table %>% filter(`Region` == 6) %>% select(`Home\nID`, `Race/\nethnicity`, `Household\nincome`) 
-  r7 <- sample_table %>% filter(`Region` == 7) %>% select(`Home\nID`, `Race/\nethnicity`, `Household\nincome`) 
-  r8 <- sample_table %>% filter(`Region` == 8) %>% select(`Home\nID`, `Race/\nethnicity`, `Household\nincome`) 
-  r9 <- sample_table %>% filter(`Region` == 9) %>% select(`Home\nID`, `Race/\nethnicity`, `Household\nincome`) 
-  r10 <- sample_table %>% filter(`Region` == 10) %>% select(`Home\nID`, `Race/\nethnicity`, `Household\nincome`) 
+  r1 <- sample_table %>% filter(`Region` == 1) %>% select(`ID`, `Race/\nethnicity`, `Household\nincome`) 
+  r2 <- sample_table %>% filter(`Region` == 2) %>% select(`ID`, `Race/\nethnicity`, `Household\nincome`) 
+  r3 <- sample_table %>% filter(`Region` == 3) %>% select(`ID`, `Race/\nethnicity`, `Household\nincome`) 
+  r4 <- sample_table %>% filter(`Region` == 4) %>% select(`ID`, `Race/\nethnicity`, `Household\nincome`) 
+  r5 <- sample_table %>% filter(`Region` == 5) %>% select(`ID`, `Race/\nethnicity`, `Household\nincome`) 
+  r6 <- sample_table %>% filter(`Region` == 6) %>% select(`ID`, `Race/\nethnicity`, `Household\nincome`) 
+  r7 <- sample_table %>% filter(`Region` == 7) %>% select(`ID`, `Race/\nethnicity`, `Household\nincome`) 
+  r8 <- sample_table %>% filter(`Region` == 8) %>% select(`ID`, `Race/\nethnicity`, `Household\nincome`) 
+  r9 <- sample_table %>% filter(`Region` == 9) %>% select(`ID`, `Race/\nethnicity`, `Household\nincome`) 
+  r10 <- sample_table %>% filter(`Region` == 10) %>% select(`ID`, `Race/\nethnicity`, `Household\nincome`) 
   
   (table_1_5 <- (ggplot() + labs(subtitle = 'Region 1') + ggplot2::annotate( geom = "table", x=0, y = 0, label = list(r1), 
                                                                              size = 2) + theme_void() + theme(plot.subtitle = element_text(face = 'bold', hjust = .5))) +
@@ -776,23 +834,500 @@ for (i in unique(remaining_list$geoid)) {
                                                                    size = 2) + theme_void()  + theme(plot.subtitle = element_text(face = 'bold', hjust = .5))) +
       plot_layout(nrow = 1) )
   
+  # Region Map --------------------------------------------------------------
   
-  # -------------------------------------------------------------------------
+  (region_map <- ggplot() +
+     geom_sf(data = water_layer, color = '#d1edff', fill = '#d1edff', alpha = 1, linewidth = .6) +
+     geom_sf(data = clusters_10, fill = '#cfd0c5', alpha = 0, linewidth = .6) +
+     # geom_sf(data = bbox, fill = '#cfd0c5', alpha = 0.5) + 
+     geom_sf(data = roads_layer, color = 'white', alpha = 1, linewidth = .4) +
+     geom_sf(data = bbox, alpha = 0, linewidth = 1) + 
+     geom_sf(data = clusters_10, color = '#333333', alpha = 0, linewidth = .4) +
+     geom_text(data = clusters_10 %>% st_difference(., clusters_10 %>% st_boundary() %>% st_buffer(500) %>% st_simplify()) %>% filter(c(cluster_id == cluster_id.1)) %>% 
+                 mutate(lon = map_dbl(geometry, ~st_point_on_surface(.x)[[1]]),
+                        lat = map_dbl(geometry, ~st_point_on_surface(.x)[[2]])),
+               aes(x = lon, y = lat, label = region_loc), 
+               fontface = 'bold',
+               size = 6) + 
+     # geom_sf_text(data = clusters_10, aes(label = paste0('Region ',region_loc)), color =  '#333333',
+     #              alpha = .8, size = 4, fontface='bold') +
+     # geom_sf(data = synthetic_sample_points, 
+     #         aes(color = race, fill = race, size = median_household_income_noise ), 
+     #         alpha = .8, linewidth = .2) + #size = 6.5,
+     # ggrepel::geom_text_repel(data = synthetic_sample_points,
+     #                          seed = 1, segment.curvature = 0, point.padding = 0, box.padding = 0, max.iter = 1000, segment.square  = FALSE, segment.inflect = FALSE, 
+     #                          min.segment.length = 0, max.overlaps = Inf, force = .01, force_pull = 2, aes(x = lon, y = lat, label = id), 
+     #                          size = 3, vjust =.5, color = 'white', fontface='bold') + 
+     # guides(color = guide_legend(override.aes = list(size = 6, alpha =1))) +
+     # scale_fill_manual(values = color_vec, name = 'Race / ethnicity') +
+     # scale_color_manual(values = color_vec, name = 'Race / ethnicity' ) +
+     # scale_size_binned(name = 'Household income', range = c(2.5, 12), 
+     #                   n.breaks = 4,
+     #                   labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
+     # guides(color = guide_legend(override.aes = list(size = 6, alpha = 1))) +
+     labs(subtitle = "Regions") + 
+     theme_void() + theme(panel.grid = element_blank(),
+                          plot.subtitle = element_text(size = 15, face = 'bold', hjust = .5),
+                          panel.border = element_blank(),
+                          panel.background = element_blank(),
+                          plot.margin=unit(c(t=0,r=0,b=0,l=0), "pt"),
+     )
+  )
   
   design <- "
-  AAAAAAB
-  AAAAAAB
-  AAAAAAB
-  CCCCCCC
-  DDDDDDD
-"
+    AAAAAAA
+    AAAAAAA
+    AAAAAAA
+    CCCCCCC
+    DDDDDDD
+  "
   
-  (viz <- map + guide_area() + table_1_5 + table_6_10 + 
-      plot_layout(design = design, guides = "collect") )
+  # region_map
   
-  (pathfile = paste0(wd_output,'/',gsub("\\s+|\\.|\\/", "_", tolower(place_name) ),'.pdf'))
+  regions_and_table <- region_map + table_1_5 + table_6_10 + 
+    plot_layout(design = design, guides = "collect")
+
+  ggsave(plot = regions_and_table, 
+         filename = paste0(wd_output,'/',gsub("\\s+|\\.|\\/", "_", tolower(place_name) ), '_table', '.pdf'), 
+         width = 8.5, height = 11) # dpi = 300,
+
+  # Teacher's Key -----------------------------------------------------------
   
-  ggsave(plot = viz, filename = pathfile, width = 8.5, height = 11) # dpi = 300,
+  # n students' samples concatenated into one dataframe and id'ed by student
+  judgment_samples <- map_dfr(.x = seq(1, num_students), .f = function(x) {
+    judgment(synthetic_sample_points) %>% mutate(student_id = x)
+  }) %>% st_drop_geometry()
   
+  simple_samples <- map_dfr(.x = seq(1, num_students), .f = function(x) {
+    simple_rs(synthetic_sample_points) %>% mutate(student_id = x)
+  }) %>% st_drop_geometry()
+  
+  stratified_samples <- map_dfr(.x = seq(1, num_students), .f = function(x) {
+    stratified_rs(synthetic_sample_points) %>% mutate(student_id = x)
+  }) %>% st_drop_geometry()
+  
+  cluster_samples <- map_dfr(.x = seq(1, num_students), .f = function(x) {
+    cluster_rs(synthetic_sample_points) %>% mutate(student_id = x)
+  }) %>% st_drop_geometry()
+  
+  # Plots of sampled points (aggregated by student)
+  
+  bin_width <- 5000
+  lo <- floor(min(synthetic_sample_points$median_household_income_noise)/bin_width) * bin_width
+  hi <- ceiling(max(synthetic_sample_points$median_household_income_noise)/bin_width) * bin_width
+
+  judgment_hist <- ggplot(judgment_samples %>%
+                            group_by(student_id) %>%
+                            summarize(median_income = median(median_household_income_noise)) %>%
+                            # mutate(income_bin = floor(median_income/bin_width) * bin_width/1000) %>%
+                            mutate(income_bin = case_when(median_income < lo ~ lo - bin_width,
+                                                          median_income >= lo & median_income < hi ~ floor(median_income/bin_width) * bin_width + 2500,
+                                                          median_income >= hi ~ hi + bin_width)) %>%
+                            group_by(income_bin) %>%
+                            mutate(student_order = row_number()), 
+                          aes(y=student_order, x=income_bin)) + 
+    # geom_density(data = synthetic_sample_points, 
+    #              aes(x = median_household_income_noise, y = after_stat(density) * (max(synthetic_sample_points$median_household_income_noise) - min(synthetic_sample_points$median_household_income_noise)))) +
+    geom_vline(xintercept = median(synthetic_sample_points$median_household_income_noise),
+               color = '#4472C4', alpha = 0.7,
+               size = 2) +
+    geom_vline(xintercept = (mean(judgment_samples %>%
+                                    group_by(student_id) %>%
+                                    summarize(median_income = median(median_household_income_noise)) %>%
+                                    ungroup() %>%
+                                    pull())),
+               color = '#F5870C', alpha = 0.7,
+               size = 2) +
+    scale_x_continuous(breaks = seq(lo, hi, by = bin_width),
+                       limits = c(lo, hi),
+                       labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
+    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 8)) + 
+    geom_text(aes(y = student_order - 0.5, x= income_bin), label = '×', color = 'black', size = 10) + 
+    labs(x = "Household income", y = 'Student count') + 
+    theme_classic() + 
+    theme(axis.text.x=element_text(size=6),
+          axis.text.y=element_text(size=6)) + 
+    ggtitle("Judgment Sample") +
+    ggplot2::annotate("text",
+                      x = max(synthetic_sample_points$median_household_income_noise), y = 7,
+                      label = "Median income of 100 households",
+                      color = "#4472C4", fontface = "bold", hjust = 1) +
+    ggplot2::annotate("text",
+                      x = max(synthetic_sample_points$median_household_income_noise), y = 8,
+                      label = "Mean of medians of students' samples",
+                      color = "#F5870C", fontface = "bold", hjust = 1)
+
+  simple_hist <- ggplot(simple_samples %>%
+                              group_by(student_id) %>%
+                              summarize(median_income = median(median_household_income_noise)) %>%
+                              # mutate(income_bin = floor(median_income/bin_width) * bin_width/1000) %>%
+                              mutate(income_bin = case_when(median_income < lo ~ lo - bin_width,
+                                                            median_income >= lo & median_income < hi ~ floor(median_income/bin_width) * bin_width + 2500,
+                                                            median_income >= hi ~ hi + bin_width)) %>%
+                              group_by(income_bin) %>%
+                              mutate(student_order = row_number()), 
+                            aes(y=student_order, x=income_bin)) + 
+    # geom_density(data = synthetic_sample_points, 
+    #              aes(x = median_household_income_noise, y = after_stat(density) * (max(synthetic_sample_points$median_household_income_noise) - min(synthetic_sample_points$median_household_income_noise)))) +
+    geom_vline(xintercept = median(synthetic_sample_points$median_household_income_noise),
+               color = '#4472C4', alpha = 0.7,
+               size = 2) +
+    geom_vline(xintercept = (mean(simple_samples %>%
+                                    group_by(student_id) %>%
+                                    summarize(median_income = median(median_household_income_noise)) %>%
+                                    ungroup() %>%
+                                    pull())),
+               color = '#F5870C', alpha = 0.7,
+               size = 2) +
+    scale_x_continuous(breaks = seq(lo, hi, by = bin_width),
+                       limits = c(lo, hi),
+                       labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
+    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 8)) + 
+    geom_text(aes(y = student_order - 0.5, x= income_bin), label = '×', color = 'black', size = 10) + 
+    labs(x = "Household income", y = 'Student count') + 
+    theme_classic() + 
+    theme(axis.text.x=element_text(size=6),
+          axis.text.y=element_text(size=6)) + 
+    ggtitle("Simple Random Sample (SRS)")
+
+  
+  stratified_hist <- ggplot(stratified_samples %>%
+           group_by(student_id) %>%
+           summarize(median_income = median(median_household_income_noise)) %>%
+           # mutate(income_bin = floor(median_income/bin_width) * bin_width/1000) %>%
+           mutate(income_bin = case_when(median_income < lo ~ lo - bin_width,
+                                         median_income >= lo & median_income < hi ~ floor(median_income/bin_width) * bin_width + 2500,
+                                         median_income >= hi ~ hi + bin_width)) %>%
+           group_by(income_bin) %>%
+           mutate(student_order = row_number()), 
+         aes(y=student_order, x=income_bin)) + 
+    # geom_density(data = synthetic_sample_points, 
+    #              aes(x = median_household_income_noise, y = after_stat(density) * (max(synthetic_sample_points$median_household_income_noise) - min(synthetic_sample_points$median_household_income_noise)))) +
+    geom_vline(xintercept = median(synthetic_sample_points$median_household_income_noise),
+               color = '#4472C4', alpha = 0.7,
+               size = 2) +
+    geom_vline(xintercept = (mean(stratified_samples %>%
+                             group_by(student_id) %>%
+                             summarize(median_income = median(median_household_income_noise)) %>%
+                             ungroup() %>%
+                             pull())),
+               color = '#F5870C', alpha = 0.7,
+               size = 2) +
+    scale_x_continuous(breaks = seq(lo, hi, by = bin_width),
+                       limits = c(lo, hi),
+                       labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
+    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 8)) + 
+    geom_text(aes(y = student_order - 0.5, x= income_bin), label = '×', color = 'black', size = 10) + 
+    labs(x = "Household income", y = 'Student count') + 
+    theme_classic() + 
+    theme(axis.text.x=element_text(size=6),
+          axis.text.y=element_text(size=6)) + 
+    ggtitle("Stratified Random Sample")
+  
+  cluster_hist <- ggplot(cluster_samples %>%
+                              group_by(student_id) %>%
+                              summarize(median_income = median(median_household_income_noise)) %>%
+                              # mutate(income_bin = floor(median_income/bin_width) * bin_width/1000) %>%
+                              mutate(income_bin = case_when(median_income < lo ~ lo - bin_width,
+                                                            median_income >= lo & median_income < hi ~ floor(median_income/bin_width) * bin_width + 2500,
+                                                            median_income >= hi ~ hi + bin_width)) %>%
+                              group_by(income_bin) %>%
+                              mutate(student_order = row_number()), 
+                            aes(y=student_order, x=income_bin)) + 
+    # geom_density(data = synthetic_sample_points, 
+    #              aes(x = median_household_income_noise, y = after_stat(density) * (max(synthetic_sample_points$median_household_income_noise) - min(synthetic_sample_points$median_household_income_noise)))) +
+    geom_vline(xintercept = median(synthetic_sample_points$median_household_income_noise),
+               color = '#4472C4', alpha = 0.7,
+               size = 2) +
+    geom_vline(xintercept = (mean(cluster_samples %>%
+                                    group_by(student_id) %>%
+                                    summarize(median_income = median(median_household_income_noise)) %>%
+                                    ungroup() %>%
+                                    pull())),
+               color = '#F5870C', alpha = 0.7,
+               size = 2) +
+    scale_x_continuous(breaks = seq(lo, hi, by = bin_width),
+                       limits = c(lo, hi),
+                       labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
+    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 8)) + 
+    geom_text(aes(y = student_order - 0.5, x= income_bin), label = '×', color = 'black', size = 10) + 
+    labs(x = "Household income", y = 'Student count') + 
+    theme_classic() + 
+    theme(axis.text.x=element_text(size=6),
+          axis.text.y=element_text(size=6)) + 
+    ggtitle("Cluster Random Sample")
+  
+  (key <- judgment_hist / simple_hist / stratified_hist / cluster_hist)
+  
+  ggsave(plot = key,
+         filename = paste0(wd_output,'/',gsub("\\s+|\\.|\\/", "_", tolower(place_name) ), '_key', '.pdf'),
+         width = 8.5, height = 11) # dpi = 300,
+  
+  # judgment_hist / simple_hist / stratified_hist / cluster_hist
+  
+  # Blank keys  -------------------------------------------------------------
+  
+  blank_judgment_hist <- ggplot() + 
+    # geom_density(data = synthetic_sample_points, 
+    #              aes(x = median_household_income_noise, y = after_stat(density) * (max(synthetic_sample_points$median_household_income_noise) - min(synthetic_sample_points$median_household_income_noise)))) +
+    scale_x_continuous(breaks = seq(lo, hi, by = bin_width),
+                       limits = c(lo, hi),
+                       labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
+    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 8)) + 
+    labs(x = "Household income", y = 'Student count') + 
+    theme_classic() + 
+    theme(axis.text.x=element_text(size=6),
+          axis.text.y=element_text(size=6)) + 
+    ggtitle("Judgment Sample")
+  
+  blank_simple_hist <- ggplot() + 
+    # geom_density(data = synthetic_sample_points, 
+    #              aes(x = median_household_income_noise, y = after_stat(density) * (max(synthetic_sample_points$median_household_income_noise) - min(synthetic_sample_points$median_household_income_noise)))) +
+    scale_x_continuous(breaks = seq(lo, hi, by = bin_width),
+                       limits = c(lo, hi),
+                       labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
+    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 8)) + 
+    labs(x = "Household income", y = 'Student count') + 
+    theme_classic() + 
+    theme(axis.text.x=element_text(size=6),
+          axis.text.y=element_text(size=6)) + 
+    ggtitle("Simple Random Sample (SRS)")
+  
+  blank_stratified_hist <- ggplot() + 
+    # geom_density(data = synthetic_sample_points, 
+    #              aes(x = median_household_income_noise, y = after_stat(density) * (max(synthetic_sample_points$median_household_income_noise) - min(synthetic_sample_points$median_household_income_noise)))) +
+    scale_x_continuous(breaks = seq(lo, hi, by = bin_width),
+                       limits = c(lo, hi),
+                       labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
+    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 8)) + 
+    labs(x = "Household income", y = 'Student count') + 
+    theme_classic() + 
+    theme(axis.text.x=element_text(size=6),
+          axis.text.y=element_text(size=6)) + 
+    ggtitle("Stratified Random Sample")
+  
+  blank_cluster_hist <- ggplot() + 
+    # geom_density(data = synthetic_sample_points, 
+    #              aes(x = median_household_income_noise, y = after_stat(density) * (max(synthetic_sample_points$median_household_income_noise) - min(synthetic_sample_points$median_household_income_noise)))) +
+    scale_x_continuous(breaks = seq(lo, hi, by = bin_width),
+                       limits = c(lo, hi),
+                       labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
+    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 8)) + 
+    labs(x = "Household income", y = 'Student count') + 
+    theme_classic() + 
+    theme(axis.text.x=element_text(size=6),
+          axis.text.y=element_text(size=6)) + 
+    ggtitle("Cluster Random Sample")
+  
+  blank_key <- blank_judgment_hist / blank_simple_hist / blank_stratified_hist / blank_cluster_hist
+  
+  ggsave(plot = blank_key, 
+         filename = paste0(wd_output,'/',gsub("\\s+|\\.|\\/", "_", tolower(place_name) ), '_blank_key', '.pdf'), 
+         width = 8.5, height = 11) # dpi = 300,
+  
+  # QC ----------------------------------------------------------------------
+  if (!check(synthetic_sample_points)) {
+    warning(sprintf("%s did not pass the QC check", place_name))
+  } else {
+    sprintf("%s passed the QC check!", place_name)
+  }
+  
+} # End of loop
+
+# Sampling functions
+judgment <- function(pop) {
+  return(pop %>% slice_sample(n = 10, weight_by = median_household_income_noise ** 2))
 }
 
+simple_rs <- function(pop) {
+  return(pop %>% slice_sample(n = 10))
+}
+
+stratified_rs <- function(pop) {
+  return(pop %>% group_by(cluster_id) %>% slice_sample(n = 1) %>% ungroup())
+}
+
+cluster_rs <- function(pop) {
+  cluster <- unique(pop$cluster_id) %>% sample(., 1)
+  return(pop %>% filter(cluster_id == cluster))
+}
+
+biased <- function(medians, distance, true_median) {
+  # A <- max(c(lo, hi))
+  # B <- abs(true_median - mean(medians))
+  # return(B/A > 0.25) # Change this to be 25% of the distance from the true median to the furthest median in cluster sampling
+  return(distance/(abs(true_median - mean(medians))) > 0.25)
+}
+
+# Check function
+check <- function(pop, n_students = 20) {
+  # Generate samples
+  # Aggregate samples
+  simple_medians <- map_dfr(.x = seq(1, n_students), .f = function(x) {
+    simple_rs(pop) %>% mutate(student_id = x)
+  }) %>% 
+    group_by(student_id) %>% 
+    summarize(median = median(median_household_income_noise)) %>%
+    ungroup() %>%
+    select(median)
+  
+  stratified_medians <- map_dfr(.x = seq(1, num_students), .f = function(x) {
+    stratified_rs(pop) %>% mutate(student_id = x)
+  }) %>% 
+    group_by(student_id) %>% 
+    summarize(median = median(median_household_income_noise)) %>%
+    ungroup() %>%
+    select(median)
+  
+  cluster_medians <- map_dfr(.x = seq(1, num_students), .f = function(x) {
+    cluster_rs(pop) %>% mutate(student_id = x)
+  }) %>% 
+    group_by(student_id) %>% 
+    summarize(median = median(median_household_income_noise)) %>%
+    ungroup() %>%
+    select(median)
+  
+  # Calculate variances and check rank
+  simple_var <- var(simple_medians$median)
+  stratified_var <- var(stratified_medians$median)
+  cluster_var <- var(cluster_medians$median)
+  # simple_var <- var(simple_medians)
+  # stratified_var <- var(stratified_medians)
+  # cluster_var <- var(cluster_medians)
+  
+  if (stratified_var > simple_var | simple_var > cluster_var) {
+    return(FALSE)
+  }
+  
+  # Check bias
+  true_median <- median(pop$median_household_income_noise)
+  all_medians <- bind_rows(simple_medians, stratified_medians, cluster_medians)
+  lo <- min(all_medians$median)
+  hi <- max(all_medians$median)
+  distance <- max(abs(lo - true_median), abs(hi - true_median))
+  return(abs(true_median - mean(simple_medians$median))/distance <= 0.25 &
+           abs(true_median - mean(stratified_medians$median))/distance <= 0.25 &
+           abs(true_median - mean(cluster_medians$median))/distance <= 0.25)
+}
+
+# Appendix ------------------------------------------------------------------
+
+# judgment_hist <- ggplot() + 
+#   geom_histogram(data = judgment_samples %>% 
+#                    group_by(student_id) %>% 
+#                    summarize(median_income = median(median_household_income_noise)) %>%
+#                    select(median_income),
+#                  color = 'black',
+#                  fill = 'white',
+#                  aes(x = median_income),
+#                  binwidth = hist_bin_width) + 
+#   geom_density(data = synthetic_sample_points, 
+#                aes(x = median_household_income_noise, y = after_stat(density) * (max(synthetic_sample_points$median_household_income_noise) - min(synthetic_sample_points$median_household_income_noise)))) +
+#   geom_vline(xintercept = median(synthetic_sample_points$median_household_income_noise), 
+#              color = '#4472C4', alpha = 0.7,
+#              size = 2) +
+#   geom_vline(xintercept = (mean(judgment_samples %>% 
+#                                   group_by(student_id) %>% 
+#                                   summarize(median_income = median(median_household_income_noise)) %>%
+#                                   ungroup() %>%
+#                                   pull())), 
+#              color = '#F5870C', alpha = 0.7,
+#              size = 2) +
+#   scale_x_continuous(name = 'Household income', 
+#                      labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
+#   expand_limits(y = c(0, 5)) + 
+#   theme_classic() + 
+#   labs(x = 'Median income', y = 'Student count') + 
+#   ggtitle("Judgment Sample") + 
+#   ggplot2::annotate("text", 
+#                     x = max(synthetic_sample_points$median_household_income_noise), y = 4,
+#                     label = "Median income of 100 households",
+#                     color = "#4472C4", fontface = "bold", hjust = 1) + 
+#   ggplot2::annotate("text",
+#                     x = max(synthetic_sample_points$median_household_income_noise), y = 5,
+#                     label = "Mean of medians of students' samples",
+#                     color = "#F5870C", fontface = "bold", hjust = 1)
+# 
+# simple_hist <- ggplot() + 
+#   geom_histogram(data = simple_samples %>% 
+#                    group_by(student_id) %>% 
+#                    summarize(median_income = median(median_household_income_noise)) %>%
+#                    select(median_income),
+#                  color = 'black',
+#                  fill = 'white',
+#                  aes(x = median_income),
+#                  binwidth = hist_bin_width) + 
+#   geom_density(data = synthetic_sample_points, 
+#                aes(x = median_household_income_noise, y = after_stat(density) * (max(synthetic_sample_points$median_household_income_noise) - min(synthetic_sample_points$median_household_income_noise)))) +
+#   geom_vline(xintercept = median(synthetic_sample_points$median_household_income_noise), 
+#              color = '#4472C4', alpha = 0.7,
+#              size = 2) +
+#   geom_vline(xintercept = (mean(simple_samples %>% 
+#                                   group_by(student_id) %>% 
+#                                   summarize(median_income = median(median_household_income_noise)) %>%
+#                                   ungroup() %>%
+#                                   pull())), 
+#              color = '#F5870C', alpha = 0.7,
+#              size = 2) +
+#   scale_x_continuous(name = 'Household income', 
+#                      labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
+#   expand_limits(y = c(0, 5)) + 
+#   theme_classic() + 
+#   labs(x = 'Median income', y = 'Student count') + 
+#   ggtitle("Simple Random Sample (SRS)")
+# 
+# stratified_hist <- ggplot() + 
+#   geom_histogram(data = stratified_samples %>% 
+#                    group_by(student_id) %>% 
+#                    summarize(median_income = median(median_household_income_noise)) %>%
+#                    select(median_income),
+#                  color = 'black',
+#                  fill = 'white',
+#                  aes(x = median_income),
+#                  binwidth = hist_bin_width) + 
+#   geom_density(data = synthetic_sample_points, 
+#                aes(x = median_household_income_noise, y = after_stat(density) * (max(synthetic_sample_points$median_household_income_noise) - min(synthetic_sample_points$median_household_income_noise)))) +
+#   geom_vline(xintercept = median(synthetic_sample_points$median_household_income_noise), 
+#              color = '#4472C4', alpha = 0.7,
+#              size = 2) +
+#   geom_vline(xintercept = (mean(stratified_samples %>% 
+#                                   group_by(student_id) %>% 
+#                                   summarize(median_income = median(median_household_income_noise)) %>%
+#                                   ungroup() %>%
+#                                   pull())), 
+#              color = '#F5870C', alpha = 0.7,
+#              size = 2) +
+#   scale_x_continuous(name = 'Household income', 
+#                      labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
+#   expand_limits(y = c(0, 5)) + 
+#   theme_classic() + 
+#   labs(x = 'Median income', y = 'Student count') + 
+#   ggtitle("Stratified Random Sample")
+# 
+# cluster_hist <- ggplot() + 
+#   geom_histogram(data = cluster_samples %>% 
+#                    group_by(student_id) %>% 
+#                    summarize(median_income = median(median_household_income_noise)) %>%
+#                    select(median_income),
+#                  color = 'black',
+#                  fill = 'white',
+#                  aes(x = median_income),
+#                  binwidth = hist_bin_width) + 
+#   geom_density(data = synthetic_sample_points, 
+#                aes(x = median_household_income_noise, y = after_stat(density) * (max(synthetic_sample_points$median_household_income_noise) - min(synthetic_sample_points$median_household_income_noise)))) +
+#   geom_vline(xintercept = median(synthetic_sample_points$median_household_income_noise), 
+#              color = '#4472C4', alpha = 0.7,
+#              size = 2) +
+#   geom_vline(xintercept = (mean(cluster_samples %>% 
+#                                   group_by(student_id) %>% 
+#                                   summarize(median_income = median(median_household_income_noise)) %>%
+#                                   ungroup() %>%
+#                                   pull())), 
+#              color = '#F5870C', alpha = 0.7,
+#              size = 2) +
+#   scale_x_continuous(name = 'Household income', 
+#                      labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
+#   expand_limits(y = c(0, 5)) + 
+#   theme_classic() + 
+#   labs(x = 'Median income', y = 'Student count') + 
+#   ggtitle("Cluster Random Sample")
