@@ -58,7 +58,7 @@ places_pop_rank <- places_pop %>%
          place = str_pad(place, width=5, side="left", pad="0"),
          placeid = paste0(state,place)) %>%
   rename(cityname = name) %>%
-  mutate(city_rank = row_number(desc(popestimate2020))) %>%
+  mutate(city_rank = row_number(desc(popestimate2022))) %>%
   filter(city_rank <= 100)
 rm(places_pop)
 
@@ -93,11 +93,14 @@ remaining_list <- county_place_map %>%
 
 # Run loop over places ----------------------------------------------------
 
-for (i in unique(remaining_list$geoid)) {
+# for (i in unique((remaining_list %>% filter(city_rank >= 97))$geoid)) {
   # i <- 1714000 # Chicago
   # i <- 2255000 # New Orleans (wide city)
   # i <- 1571550 # Urban Honolulu
   # i <- 5548000 # Madison
+  # i <- 2507000 # Boston
+  # i <- "0820000" # Denver
+  i <- "0675000" # Stockton
   
   place_name <- county_place_map %>% filter(geoid == i) %>% st_drop_geometry() %>%
     select(name_short) %>% pull() %>% unique()
@@ -396,6 +399,7 @@ for (i in unique(remaining_list$geoid)) {
       
       if (num_points > 1) { 
         # Population-weighted XY k-means
+        set.seed(seed = 100)
         k_clusters <- stats::kmeans(x = tract_data_clusters %>%
                                       filter(cluster_plurality_race == i) %>%
                                       #st_transform(3395) %>%
@@ -492,7 +496,7 @@ for (i in unique(remaining_list$geoid)) {
   
   # Roads and water ---------------------------------------------------------
   
-  buffer <- 0.1
+  buffer <- 0.01
   bbox <- clusters %>% st_bbox()
   width <- bbox$xmax - bbox$xmin
   height <- bbox$ymax - bbox$ymin
@@ -550,6 +554,7 @@ for (i in unique(remaining_list$geoid)) {
                              share >= .01 ~ round(share*102, 0))) %>%
     ungroup()
   
+  set.seed(seed = 100)
   synthetic_distribution <- cluster_aggregate_data %>%
     #filter(count > 0) %>%
     type.convert(as.is = TRUE) %>% 
@@ -656,7 +661,8 @@ for (i in unique(remaining_list$geoid)) {
                       st_union(.) %>%
                       st_transform(4326) %>% st_make_valid())
   }
-    
+  
+  set.seed(seed = 100)
   dots <- sf::st_sample(clusters_padding %>% st_transform(3395), size = c(100, 100, 100, 100, 100, 100, 100, 100, 100, 100), by_polygon = TRUE, type = 'regular') %>%
     st_as_sf() %>%
     st_transform(4326) %>%
@@ -710,18 +716,25 @@ for (i in unique(remaining_list$geoid)) {
   #                 aes(label = region_loc, geometry = geometry), stat = "sf_coordinates",
   #                 size = 3, vjust =.5, color = '#333333', fontface='bold') + 
   
+  
+  
   color_vec <- c('#F5870C', '#4472C4', '#06c049', '#70309F', '#fece0a', '#FF0000')
   
   (map <- ggplot() +
-      geom_sf(data = bbox, fill = 'white', alpha = 0.5) + 
+      geom_sf(data = bbox, fill = 'white', alpha = 1) +
       geom_sf(data = water_layer, color = '#d1edff', fill = '#d1edff', alpha = 1, linewidth = .6) +
       geom_sf(data = clusters_10, alpha = 0, linewidth = .6) +
       geom_sf(data = roads_layer, color = '#d2d2d2', alpha = 1, linewidth = .6) +
-      geom_sf(data = bbox, alpha = 0, linewidth = 1) + 
+      geom_sf(data = bbox, color = '#999999', alpha = 0, linewidth = 1) +
       geom_sf(data = clusters_10, color = '#333333', alpha = 0, linewidth = .4) +
       # geom_sf_text(data = clusters_10, aes(label = paste0('Region ',region_loc)), color =  '#333333',
       #              alpha = .8, size = 4, fontface='bold') +
-      geom_sf(data = synthetic_sample_points, 
+      geom_sf(data = synthetic_sample_points %>%
+                mutate(race = case_when(race == 'Asian/Pacific Islander' ~ 'Asian',
+                                        race == 'Multiracial/Other' ~ 'Multiracial',
+                                        race == 'Native American' ~ 'Native', 
+                                        TRUE ~ as.character(race))) %>%
+                mutate(race = factor(race, levels = c("Asian", "Black", "Latino/a", "Multiracial", "Native", "White"))), 
               aes(color = race, fill = race, size = median_household_income_noise ), 
               alpha = .8, linewidth = .2) + #size = 6.5,
       ggrepel::geom_text_repel(data = synthetic_sample_points,
@@ -729,22 +742,20 @@ for (i in unique(remaining_list$geoid)) {
                                min.segment.length = 0, max.overlaps = Inf, force = .01, force_pull = 2, aes(x = lon, y = lat, label = id), 
                                size = 3, vjust =.5, color = 'white', fontface='bold') + 
       guides(color = guide_legend(override.aes = list(size = 6, alpha =1))) +
-      scale_fill_manual(values = color_vec, name = 'Race / ethnicity') +
-      scale_color_manual(values = color_vec, name = 'Race / ethnicity' ) +
-      scale_size_binned(name = 'Household income', range = c(2.5, 12), 
+      scale_fill_manual(values = color_vec, name = 'Race/\nethnicity') +
+      scale_color_manual(values = color_vec, name = 'Race/\nethnicity' ) +
+      scale_size_binned(name = 'Household\nincome', range = c(2.5, 12), 
                         n.breaks = 4,
                         labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
       guides(color = guide_legend(override.aes = list(size = 6, alpha = 1))) +
-      labs(subtitle = place_name) + 
+      labs(subtitle = place_name, caption = "*Asian represents Asian and Pacific Islanders, Native represents Native Americans,\nand Multiracial represents people of 2 or more races or who belong to another race.*") +
       theme_void() + theme(legend.position = 'right',
                            legend.justification = "top",
                            plot.subtitle = element_text(size = 15, face = 'bold', hjust = .5),
-                           legend.title = element_text(size = 10, face = 'bold'),
-                           legend.text = element_text(size = 10),
-                           panel.grid = element_blank(),
-                           panel.border = element_blank(),
-                           panel.background = element_blank(),
-                           legend.margin=margin(t=20,r=17,b=0,l=0),
+                           plot.caption = element_text(size = 12, hjust = 0.5, vjust = 0.5),
+                           legend.title = element_text(size = 12, face = 'bold'),
+                           legend.text = element_text(size = 12),
+                           legend.margin=margin(t=20,r=0,b=0,l=5),
                            legend.box.margin=margin(0,0,0,0),
                            plot.margin=unit(c(t=0,r=0,b=0,l=0), "pt"),
                            legend.box = 'vertical'
@@ -752,15 +763,48 @@ for (i in unique(remaining_list$geoid)) {
   
   # map
   
+  design1 <- "
+    AAAAAAAAAAAAB
+    AAAAAAAAAAAAB
+    AAAAAAAAAAAAB
+    AAAAAAAAAAAAB
+    AAAAAAAAAAAAB
+  "
+  
+  map <- map + guide_area() + plot_layout(design = design1)
+  
+  map
+  
+  #     theme_void() + theme(legend.position = 'right',
+  #                          legend.justification = "top",
+  #                          plot.subtitle = element_text(size = 15, face = 'bold', hjust = .5),
+  #                          plot.caption = element_text(size = 12, hjust = 0),
+  #                          legend.title = element_text(size = 12, face = 'bold'),
+  #                          legend.text = element_text(size = 12),
+  #                          panel.grid = element_blank(),
+  #                          panel.border = element_blank(),
+  #                          panel.background = element_blank(),
+  #                          legend.margin=margin(t=20,r=17,b=0,l=0),
+  #                          legend.box.margin=margin(0,0,0,0),
+  #                          plot.margin=unit(c(t=0,r=0,b=0,l=0), "pt"),
+  #                          legend.box = 'vertical'
+  #     ))
+  # 
+  # # map
+  # 
+  # design1 <- "
+  #   AAAAAAAB
+  #   AAAAAAAB
+  #   AAAAAAAB
+  # "
+  # 
+  # map <- map + guide_area() + plot_layout(design = design1)
+  # 
+  # map
+  
   # -------------------------------------------------------------------------
   
-  #   design <- "
-  #   AAAAAAB
-  #   AAAAAAB
-  #   AAAAAAB
-  #   CCCCCCC
-  #   DDDDDDD
-  # "
+    
   #   
   #   (viz <- map + guide_area() + table_1_5 + table_6_10 + 
   #       plot_layout(design = design, guides = "collect") )
@@ -772,16 +816,16 @@ for (i in unique(remaining_list$geoid)) {
   
   # map
 
-  edges <- st_bbox(clusters_10)
-  if (edges$xmax - edges$xmin > edges$ymax - edges$ymin) { # If width is greater than height
-    ggsave(plot = map + plot_layout(guides = 'collect'), 
-           filename = paste0(wd_output,'/',gsub("\\s+|\\.|\\/", "_", tolower(place_name) ), '_map', '.pdf'), 
-           width = 11, height = 8.5) # dpi = 300,
-  } else {
-    ggsave(plot = map + plot_layout(guides = 'collect'), 
-           filename = paste0(wd_output,'/',gsub("\\s+|\\.|\\/", "_", tolower(place_name) ), '_map', '.pdf'), 
-           width = 8.5, height = 11) # dpi = 300,
-  }
+  # edges <- st_bbox(clusters_10)
+  # if (edges$xmax - edges$xmin > edges$ymax - edges$ymin) { # If width is greater than height
+  #   ggsave(plot = map + plot_layout(guides = 'collect'), 
+  #          filename = paste0(wd_output,'/',gsub("\\s+|\\.|\\/", "_", tolower(place_name) ), '_map', '.pdf'), 
+  #          width = 11, height = 8.5) # dpi = 300,
+  # } else {
+  #   ggsave(plot = map + plot_layout(guides = 'collect'), 
+  #          filename = paste0(wd_output,'/',gsub("\\s+|\\.|\\/", "_", tolower(place_name) ), '_map', '.pdf'), 
+  #          width = 8.5, height = 11) # dpi = 300,
+  # }
   
   # -------------------------------------------------------------------------
   
@@ -874,7 +918,7 @@ for (i in unique(remaining_list$geoid)) {
      )
   )
   
-  design <- "
+  design2 <- "
     AAAAAAA
     AAAAAAA
     AAAAAAA
@@ -885,11 +929,11 @@ for (i in unique(remaining_list$geoid)) {
   # region_map
   
   regions_and_table <- region_map + table_1_5 + table_6_10 + 
-    plot_layout(design = design, guides = "collect")
+    plot_layout(design = design2, guides = "collect")
 
-  ggsave(plot = regions_and_table, 
-         filename = paste0(wd_output,'/',gsub("\\s+|\\.|\\/", "_", tolower(place_name) ), '_table', '.pdf'), 
-         width = 8.5, height = 11) # dpi = 300,
+  # ggsave(plot = regions_and_table, 
+  #        filename = paste0(wd_output,'/',gsub("\\s+|\\.|\\/", "_", tolower(place_name) ), '_table', '.pdf'), 
+  #        width = 8.5, height = 11) # dpi = 300,
 
   # Teacher's Key -----------------------------------------------------------
   
@@ -1059,9 +1103,9 @@ for (i in unique(remaining_list$geoid)) {
   
   (key <- judgment_hist / simple_hist / stratified_hist / cluster_hist)
   
-  ggsave(plot = key,
-         filename = paste0(wd_output,'/',gsub("\\s+|\\.|\\/", "_", tolower(place_name) ), '_key', '.pdf'),
-         width = 8.5, height = 11) # dpi = 300,
+  # ggsave(plot = key,
+         # filename = paste0(wd_output,'/',gsub("\\s+|\\.|\\/", "_", tolower(place_name) ), '_key', '.pdf'),
+         # width = 8.5, height = 11) # dpi = 300,
   
   # judgment_hist / simple_hist / stratified_hist / cluster_hist
   
@@ -1121,9 +1165,9 @@ for (i in unique(remaining_list$geoid)) {
   
   blank_key <- blank_judgment_hist / blank_simple_hist / blank_stratified_hist / blank_cluster_hist
   
-  ggsave(plot = blank_key, 
-         filename = paste0(wd_output,'/',gsub("\\s+|\\.|\\/", "_", tolower(place_name) ), '_blank_key', '.pdf'), 
-         width = 8.5, height = 11) # dpi = 300,
+  # ggsave(plot = blank_key, 
+  #        filename = paste0(wd_output,'/',gsub("\\s+|\\.|\\/", "_", tolower(place_name) ), '_blank_key', '.pdf'), 
+  #        width = 8.5, height = 11) # dpi = 300,
   
   # QC ----------------------------------------------------------------------
   if (!check(synthetic_sample_points)) {
@@ -1132,7 +1176,7 @@ for (i in unique(remaining_list$geoid)) {
     sprintf("%s passed the QC check!", place_name)
   }
   
-} # End of loop
+# } # End of loop
 
 # Sampling functions
 judgment <- function(pop) {
