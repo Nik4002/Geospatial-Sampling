@@ -97,10 +97,10 @@ remaining_list <- county_place_map %>%
   # i <- 1714000 # Chicago
   # i <- 2255000 # New Orleans (wide city)
   # i <- 1571550 # Urban Honolulu
-  # i <- 5548000 # Madison
+  i <- 5548000 # Madison
   # i <- 2507000 # Boston
   # i <- "0820000" # Denver
-  i <- "0675000" # Stockton
+  # i <- "0675000" # Stockton
   
   place_name <- county_place_map %>% filter(geoid == i) %>% st_drop_geometry() %>%
     select(name_short) %>% pull() %>% unique()
@@ -742,26 +742,27 @@ remaining_list <- county_place_map %>%
                                min.segment.length = 0, max.overlaps = Inf, force = .01, force_pull = 2, aes(x = lon, y = lat, label = id), 
                                size = 3, vjust =.5, color = 'white', fontface='bold') + 
       guides(color = guide_legend(override.aes = list(size = 6, alpha =1))) +
-      scale_fill_manual(values = color_vec, name = 'Race/\nethnicity') +
-      scale_color_manual(values = color_vec, name = 'Race/\nethnicity' ) +
+      scale_fill_manual(values = color_vec, name = 'Race/\nethnicity*') +
+      scale_color_manual(values = color_vec, name = 'Race/\nethnicity*' ) +
       scale_size_binned(name = 'Household\nincome', range = c(2.5, 12), 
                         n.breaks = 4,
                         labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
       guides(color = guide_legend(override.aes = list(size = 6, alpha = 1))) +
-      labs(subtitle = place_name, caption = "*Asian represents Asian and Pacific Islanders, Native represents Native Americans,\nand Multiracial represents people of 2 or more races or who belong to another race.*") +
+      labs(title = place_name, 
+           subtitle = paste0("100 representative people in 10 regions in ", place_name, " (10 per region)"),
+           caption = "*Complete race/ethnicity names from U.S. Census:\nAsian: Asian, Native Hawaiian and Other Pacific Islander; Black: Black or African American;\nLatino/a: Hispanic or Latino; Multiracial: Two or more races, Other races;\nNative: American Indian and Alaska Native; White: White.") +
       theme_void() + theme(legend.position = 'right',
                            legend.justification = "top",
-                           plot.subtitle = element_text(size = 15, face = 'bold', hjust = .5),
+                           plot.title = element_text(size = 15, face = 'bold', hjust = 0.5),
+                           plot.subtitle = element_text(size = 12, hjust = 0.5),
                            plot.caption = element_text(size = 12, hjust = 0.5, vjust = 0.5),
-                           legend.title = element_text(size = 12, face = 'bold'),
+                           legend.title = element_text(size = 12, face = 'bold', hjust = 0),
                            legend.text = element_text(size = 12),
                            legend.margin=margin(t=20,r=0,b=0,l=5),
                            legend.box.margin=margin(0,0,0,0),
                            plot.margin=unit(c(t=0,r=0,b=0,l=0), "pt"),
                            legend.box = 'vertical'
       ))
-  
-  # map
   
   design1 <- "
     AAAAAAAAAAAAB
@@ -775,29 +776,6 @@ remaining_list <- county_place_map %>%
   
   map
   
-  #     theme_void() + theme(legend.position = 'right',
-  #                          legend.justification = "top",
-  #                          plot.subtitle = element_text(size = 15, face = 'bold', hjust = .5),
-  #                          plot.caption = element_text(size = 12, hjust = 0),
-  #                          legend.title = element_text(size = 12, face = 'bold'),
-  #                          legend.text = element_text(size = 12),
-  #                          panel.grid = element_blank(),
-  #                          panel.border = element_blank(),
-  #                          panel.background = element_blank(),
-  #                          legend.margin=margin(t=20,r=17,b=0,l=0),
-  #                          legend.box.margin=margin(0,0,0,0),
-  #                          plot.margin=unit(c(t=0,r=0,b=0,l=0), "pt"),
-  #                          legend.box = 'vertical'
-  #     ))
-  # 
-  # # map
-  # 
-  # design1 <- "
-  #   AAAAAAAB
-  #   AAAAAAAB
-  #   AAAAAAAB
-  # "
-  # 
   # map <- map + guide_area() + plot_layout(design = design1)
   # 
   # map
@@ -928,14 +906,16 @@ remaining_list <- county_place_map %>%
   
   # region_map
   
-  regions_and_table <- region_map + table_1_5 + table_6_10 + 
-    plot_layout(design = design2, guides = "collect")
+  (regions_and_table <- region_map + table_1_5 + table_6_10 + 
+    plot_layout(design = design2, guides = "collect"))
 
   # ggsave(plot = regions_and_table, 
   #        filename = paste0(wd_output,'/',gsub("\\s+|\\.|\\/", "_", tolower(place_name) ), '_table', '.pdf'), 
   #        width = 8.5, height = 11) # dpi = 300,
 
   # Teacher's Key -----------------------------------------------------------
+  
+  num_students <- 20
   
   # n students' samples concatenated into one dataframe and id'ed by student
   judgment_samples <- map_dfr(.x = seq(1, num_students), .f = function(x) {
