@@ -1,4 +1,4 @@
-
+library(pdftools)
 
 # data
 library(dplyr)
@@ -30,7 +30,80 @@ set.seed(seed = 100)
 
 wd_input = '/Users/nm/Desktop/Projects/work/skew-the-script/inputs.nosync'
 # wd_output = '/Users/nm/Desktop/Projects/work/skew-the-script/outputs.nosync'
-wd_output = '/Users/nikhilpatel/Documents/Projects/Geospatial_Sampling/plots'
+wd_output = '/Users/nikhilpatel/Documents/Projects/Geospatial_Sampling'
+
+# Sampling functions
+judgment <- function(pop, seed = 100) {
+  set.seed(seed = seed)
+  return(pop %>% slice_sample(n = 10, weight_by = median_household_income_noise ** 2))
+}
+
+simple_rs <- function(pop, seed = 100) {
+  set.seed(seed = seed)
+  return(pop %>% slice_sample(n = 10))
+}
+
+stratified_rs <- function(pop, seed = 100) {
+  set.seed(seed = seed)
+  return(pop %>% group_by(cluster_id) %>% slice_sample(n = 1) %>% ungroup())
+}
+
+cluster_rs <- function(pop, seed = 100) {
+  set.seed(seed = seed)
+  cluster <- unique(pop$cluster_id) %>% sample(., 1)
+  return(pop %>% filter(cluster_id == cluster))
+}
+
+biased <- function(medians, distance, true_median) {
+  # A <- max(c(lo, hi))
+  # B <- abs(true_median - mean(medians))
+  # return(B/A > 0.25) # Change this to be 25% of the distance from the true median to the furthest median in cluster sampling
+  return(distance/(abs(true_median - mean(medians))) > 0.25)
+}
+
+check <- function(pop, simple_samples, stratified_samples, cluster_samples) {
+  # Aggregate samples
+  simple_medians <- simple_samples %>% group_by(student_id) %>%
+    summarize(median = median(median_household_income_noise)) %>%
+    ungroup() %>%
+    select(median)
+  
+  stratified_medians <- stratified_samples %>%
+    group_by(student_id) %>%
+    summarize(median = median(median_household_income_noise)) %>%
+    ungroup() %>%
+    select(median)
+  
+  cluster_medians <- cluster_samples %>%
+    group_by(student_id) %>%
+    summarize(median = median(median_household_income_noise)) %>%
+    ungroup() %>%
+    select(median)
+  
+  # Calculate variances and check rank
+  simple_var <- var(simple_medians$median)
+  stratified_var <- var(stratified_medians$median)
+  cluster_var <- var(cluster_medians$median)
+  # simple_var <- var(simple_medians)
+  # stratified_var <- var(stratified_medians)
+  # cluster_var <- var(cluster_medians)
+  
+  if (stratified_var > simple_var | simple_var > cluster_var) {
+    return(FALSE)
+  }
+  
+  # Check bias
+  true_median <- median(pop$median_household_income_noise)
+  all_medians <- bind_rows(simple_medians, stratified_medians, cluster_medians)
+  lo <- min(all_medians$median)
+  hi <- max(all_medians$median)
+  distance <- max(abs(lo - true_median), abs(hi - true_median))
+  return(abs(true_median - mean(simple_medians$median))/distance <= 0.25 &
+           abs(true_median - mean(stratified_medians$median))/distance <= 0.25 &
+           abs(true_median - mean(cluster_medians$median))/distance <= 0.25)
+}
+
+# Spatial adjacency methods -----------------------------------------------
 
 # write_excel_csv(x = agglos_df, file = paste0(wd_output,'/data/agglomeration_data.csv'))
 
@@ -93,17 +166,25 @@ remaining_list <- county_place_map %>%
 
 # Run loop over places ----------------------------------------------------
 
-# for (i in unique((remaining_list %>% filter(city_rank >= 97))$geoid)) {
-  # i <- 1714000 # Chicago
-  # i <- 2255000 # New Orleans (wide city)
-  # i <- 1571550 # Urban Honolulu
-  i <- 5548000 # Madison
-  # i <- 2507000 # Boston
+qc_fails <- c()
+qc_passes <- c()
+
+for (i in unique((remaining_list %>% filter(city_rank >= 0))$geoid)) {
+  # i <- "1714000" # Chicago
+  # i <- "2255000" # New Orleans (wide city)
+  # i <- "1571550" # Urban Honolulu
+  # i <- "5548000" # Madison
+  # i <- "2507000" # Boston
   # i <- "0820000" # Denver
   # i <- "0675000" # Stockton
+  # i <- "0613392" # Chula Vista
+  # i <- "0667000" # San Francisco (city with weird island)
+  # i <- "4865000" # San Antonio
   
   place_name <- county_place_map %>% filter(geoid == i) %>% st_drop_geometry() %>%
     select(name_short) %>% pull() %>% unique()
+  
+  place_name_lower <- gsub("\\s+|\\.|\\/", "_", tolower(place_name))
   
   print(place_name)
   
@@ -134,6 +215,27 @@ remaining_list <- county_place_map %>%
     st_join(x = ., y = places_geo %>% st_transform(3857) %>% 
               st_buffer(100) %>% st_transform(4326), 
             join = st_within, left = FALSE)
+  
+  if (i == "4865000") {
+    tract_data <- tract_data %>% filter(geoid != "48029980005")
+  } else if (i == "0820000") {
+    tract_data <- tract_data %>% filter(geoid != "08031980001")
+  }
+  
+  city_border <- tract_data %>% st_union()
+  
+  if (i == "0667000") { # If current city is San Francisco, cut out remote island
+    bbox <- st_sfc(st_polygon(list(rbind(c(-122.3262, 37.83354), 
+                                         c(-122.3262, 37.70687), 
+                                         c(-122.5163, 37.70687), 
+                                         c(-122.5163, 37.83354), 
+                                         c(-122.3262, 37.83354)))))
+    st_crs(bbox) <- st_crs(4326)
+    city_border <- city_border %>% st_intersection(bbox)
+  }
+  
+  tract_data <- tract_data  %>%
+    drop_na(total_population)
   
   # tract_data %>% select(placeid) %>% 
   #   st_intersection(., places_geo %>% select(geometry)) %>%
@@ -398,6 +500,13 @@ remaining_list <- county_place_map %>%
         select(cluster_count) %>% pull() )
       
       if (num_points > 1) { 
+        if (num_points == nrow(tract_data_clusters %>%
+                               filter(cluster_plurality_race == i))) {
+          algorithm <- "Lloyd"
+        } else {
+          algorithm <- "Hartigan-Wong"
+        }
+        
         # Population-weighted XY k-means
         set.seed(seed = 100)
         k_clusters <- stats::kmeans(x = tract_data_clusters %>%
@@ -408,14 +517,12 @@ remaining_list <- county_place_map %>%
                                              lat = map_dbl(geometry, ~st_point_on_surface(.x)[[2]]) ) %>%
                                       st_drop_geometry() %>%
                                       mutate(total_population = replace_na(total_population, 0)) %>%
-                                      #filter(total_population > 0) %>%
-                                      #mutate(lon = scale(lon, center = TRUE, scale = TRUE)*total_population,
-                                      #       lat = scale(lat, center = TRUE, scale = TRUE)*total_population) %>%
                                       mutate(lon = scale(lon, center = TRUE, scale = TRUE),
                                              lat = scale(lat, center = TRUE, scale = TRUE)) %>%
                                       select(lon, lat) %>%
                                       as.matrix(),
-                                    centers = num_points)
+                                    centers = num_points,
+                                    algorithm = algorithm)
       } else {
         k_clusters <- tract_data_clusters %>%
           filter(cluster_plurality_race == i) %>%
@@ -497,7 +604,8 @@ remaining_list <- county_place_map %>%
   # Roads and water ---------------------------------------------------------
   
   buffer <- 0.01
-  bbox <- clusters %>% st_bbox()
+  # bbox <- clusters %>% st_bbox()
+  bbox <- city_border %>% st_bbox()
   width <- bbox$xmax - bbox$xmin
   height <- bbox$ymax - bbox$ymin
   bbox$xmax = bbox$xmax + buffer * width 
@@ -627,7 +735,7 @@ remaining_list <- county_place_map %>%
     print('No missing race / ethnicities.') 
   }
   
-  # Viz ---------------------------------------------------------------------
+  # Map ---------------------------------------------------------------------
   
   clusters_10 <- tract_data_all_geo %>% 
     group_by(cluster_id) %>% # cluster_group,
@@ -644,7 +752,7 @@ remaining_list <- county_place_map %>%
     st_difference(., clusters_10 %>% 
                     st_boundary() %>% st_as_sf() %>%
                     st_transform(3395) %>%
-                    st_buffer(., dist = 400) %>%
+                    st_buffer(., dist = 200) %>%
                     st_transform(4326) %>% st_make_valid() %>% st_union() %>% st_make_valid() ) 
   
   water_remove <- water_layer %>% st_transform(3395) %>%
@@ -716,15 +824,16 @@ remaining_list <- county_place_map %>%
   #                 aes(label = region_loc, geometry = geometry), stat = "sf_coordinates",
   #                 size = 3, vjust =.5, color = '#333333', fontface='bold') + 
   
-  
+  # trimmed_city_border <- 
   
   color_vec <- c('#F5870C', '#4472C4', '#06c049', '#70309F', '#fece0a', '#FF0000')
   
   (map <- ggplot() +
       geom_sf(data = bbox, fill = 'white', alpha = 1) +
       geom_sf(data = water_layer, color = '#d1edff', fill = '#d1edff', alpha = 1, linewidth = .6) +
+      geom_sf(data = city_border, color = 'gray', alpha = 0, linewidth = .6) + 
       geom_sf(data = clusters_10, alpha = 0, linewidth = .6) +
-      geom_sf(data = roads_layer, color = '#d2d2d2', alpha = 1, linewidth = .6) +
+      geom_sf(data = roads_layer, color = '#fae7af', alpha = 1, linewidth = .6) +
       geom_sf(data = bbox, color = '#999999', alpha = 0, linewidth = 1) +
       geom_sf(data = clusters_10, color = '#333333', alpha = 0, linewidth = .4) +
       # geom_sf_text(data = clusters_10, aes(label = paste0('Region ',region_loc)), color =  '#333333',
@@ -755,12 +864,12 @@ remaining_list <- county_place_map %>%
                            legend.justification = "top",
                            plot.title = element_text(size = 15, face = 'bold', hjust = 0.5),
                            plot.subtitle = element_text(size = 12, hjust = 0.5),
-                           plot.caption = element_text(size = 12, hjust = 0.5, vjust = 0.5),
+                           plot.caption = element_text(size = 10, hjust = 0.5, vjust = 0.5),
                            legend.title = element_text(size = 12, face = 'bold', hjust = 0),
                            legend.text = element_text(size = 12),
                            legend.margin=margin(t=20,r=0,b=0,l=5),
-                           legend.box.margin=margin(0,0,0,0),
-                           plot.margin=unit(c(t=0,r=0,b=0,l=0), "pt"),
+                           legend.box.margin=margin(0,5,0,0),
+                           plot.margin=unit(c(t=10,r=0,b=10,l=10), "pt"),
                            legend.box = 'vertical'
       ))
   
@@ -776,34 +885,20 @@ remaining_list <- county_place_map %>%
   
   map
   
-  # map <- map + guide_area() + plot_layout(design = design1)
-  # 
-  # map
-  
-  # -------------------------------------------------------------------------
-  
-    
-  #   
-  #   (viz <- map + guide_area() + table_1_5 + table_6_10 + 
-  #       plot_layout(design = design, guides = "collect") )
-  #   
-  #   (pathfile = paste0(wd_output,'/',gsub("\\s+|\\.|\\/", "_", tolower(place_name) ),'.pdf'))
-  #   
-  #   # ggsave(plot = viz, filename = pathfile, width = 8.5, height = 11) # dpi = 300,
-  #   viz
-  
-  # map
-
-  # edges <- st_bbox(clusters_10)
-  # if (edges$xmax - edges$xmin > edges$ymax - edges$ymin) { # If width is greater than height
-  #   ggsave(plot = map + plot_layout(guides = 'collect'), 
-  #          filename = paste0(wd_output,'/',gsub("\\s+|\\.|\\/", "_", tolower(place_name) ), '_map', '.pdf'), 
-  #          width = 11, height = 8.5) # dpi = 300,
-  # } else {
-  #   ggsave(plot = map + plot_layout(guides = 'collect'), 
-  #          filename = paste0(wd_output,'/',gsub("\\s+|\\.|\\/", "_", tolower(place_name) ), '_map', '.pdf'), 
-  #          width = 8.5, height = 11) # dpi = 300,
-  # }
+  edges <- st_bbox(clusters_10)
+  if (edges$xmax - edges$xmin > edges$ymax - edges$ymin) { # If width is greater than height
+    ggsave(plot = map,
+           filename = paste0(wd_output,'/Plots/', place_name_lower, '_map_landscape', '.pdf'),
+           width = 11, height = 8.5) # dpi = 300,
+    qpdf::pdf_rotate_pages(input = paste0(wd_output,'/Plots/', place_name_lower, '_map_landscape', '.pdf'),
+                           pages = c(1), 
+                           angle = 90,
+                           output = paste0(wd_output,'/Plots/', place_name_lower, '_map', '.pdf'))
+  } else {
+    ggsave(plot = map,
+           filename = paste0(wd_output,'/Plots/', place_name_lower, '_map', '.pdf'),
+           width = 8.5, height = 11) # dpi = 300,
+  }
   
   # -------------------------------------------------------------------------
   
@@ -860,6 +955,7 @@ remaining_list <- county_place_map %>%
   
   (region_map <- ggplot() +
      geom_sf(data = water_layer, color = '#d1edff', fill = '#d1edff', alpha = 1, linewidth = .6) +
+     geom_sf(data = city_border, color = 'gray', alpha = 0, linewidth = .6) + 
      geom_sf(data = clusters_10, fill = '#cfd0c5', alpha = 0, linewidth = .6) +
      # geom_sf(data = bbox, fill = '#cfd0c5', alpha = 0.5) + 
      geom_sf(data = roads_layer, color = 'white', alpha = 1, linewidth = .4) +
@@ -909,36 +1005,68 @@ remaining_list <- county_place_map %>%
   (regions_and_table <- region_map + table_1_5 + table_6_10 + 
     plot_layout(design = design2, guides = "collect"))
 
-  # ggsave(plot = regions_and_table, 
-  #        filename = paste0(wd_output,'/',gsub("\\s+|\\.|\\/", "_", tolower(place_name) ), '_table', '.pdf'), 
-  #        width = 8.5, height = 11) # dpi = 300,
+  ggsave(plot = regions_and_table,
+         filename = paste0(wd_output,'/Plots/', place_name_lower, '_table', '.pdf'),
+         width = 8.5, height = 11) # dpi = 300,
 
   # Teacher's Key -----------------------------------------------------------
   
   num_students <- 20
+  runs <- 10
+  fail <- FALSE
   
-  # n students' samples concatenated into one dataframe and id'ed by student
-  judgment_samples <- map_dfr(.x = seq(1, num_students), .f = function(x) {
-    judgment(synthetic_sample_points) %>% mutate(student_id = x)
-  }) %>% st_drop_geometry()
+  for (j in 1:runs) {
+    seed <- j
+    # n students' samples concatenated into one dataframe and id'ed by student
+    judgment_samples <- map_dfr(.x = seq(1, num_students), .f = function(x) {
+      judgment(synthetic_sample_points, x * runs + seed) %>% mutate(student_id = x)
+    }) %>% st_drop_geometry()
+    
+    simple_samples <- map_dfr(.x = seq(1, num_students), .f = function(x) {
+      simple_rs(synthetic_sample_points, x * runs + seed) %>% mutate(student_id = x)
+    }) %>% st_drop_geometry()
+    
+    stratified_samples <- map_dfr(.x = seq(1, num_students), .f = function(x) {
+      stratified_rs(synthetic_sample_points, x * runs + seed) %>% mutate(student_id = x)
+    }) %>% st_drop_geometry()
+    
+    cluster_samples <- map_dfr(.x = seq(1, num_students), .f = function(x) {
+      cluster_rs(synthetic_sample_points, x * runs + seed) %>% mutate(student_id = x)
+    }) %>% st_drop_geometry()
+    
+    # QC
+    if (!check(pop = synthetic_sample_points, 
+               simple_samples = simple_samples, 
+               stratified_samples = stratified_samples, 
+               cluster_samples = cluster_samples)) {
+      # warning(sprintf("%s did not pass the QC check", place_name))
+      if (j == runs) {
+        fail = TRUE
+      }
+    } else {
+      sprintf("%s passed the QC check!", place_name)
+      break
+    }
+  }
   
-  simple_samples <- map_dfr(.x = seq(1, num_students), .f = function(x) {
-    simple_rs(synthetic_sample_points) %>% mutate(student_id = x)
-  }) %>% st_drop_geometry()
-  
-  stratified_samples <- map_dfr(.x = seq(1, num_students), .f = function(x) {
-    stratified_rs(synthetic_sample_points) %>% mutate(student_id = x)
-  }) %>% st_drop_geometry()
-  
-  cluster_samples <- map_dfr(.x = seq(1, num_students), .f = function(x) {
-    cluster_rs(synthetic_sample_points) %>% mutate(student_id = x)
-  }) %>% st_drop_geometry()
-  
+  if (fail == TRUE) {
+    warning(sprintf("%s did not pass the QC check", place_name))
+    qc_fails <- append(qc_fails, i)
+    # next
+  } else {
+    qc_passes <- append(qc_passes, i)
+  }
+    
   # Plots of sampled points (aggregated by student)
   
   bin_width <- 5000
   lo <- floor(min(synthetic_sample_points$median_household_income_noise)/bin_width) * bin_width
   hi <- ceiling(max(synthetic_sample_points$median_household_income_noise)/bin_width) * bin_width
+  label_amounts <- seq(lo/1000, hi/1000, by = bin_width/1000)
+  labels <- case_when(label_amounts %% 10 == 0 ~ paste0("$", label_amounts, "K"),
+                      label_amounts %% 10 == 5 ~ "")
+  # lo <- 0
+  # hi <- 200000
 
   judgment_hist <- ggplot(judgment_samples %>%
                             group_by(student_id) %>%
@@ -964,20 +1092,30 @@ remaining_list <- county_place_map %>%
                size = 2) +
     scale_x_continuous(breaks = seq(lo, hi, by = bin_width),
                        limits = c(lo, hi),
-                       labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
-    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 8)) + 
-    geom_text(aes(y = student_order - 0.5, x= income_bin), label = '×', color = 'black', size = 10) + 
-    labs(x = "Household income", y = 'Student count') + 
+                       # labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
+                       # labels = label_dollar(accuracy = 1L, scale =  0.001)) +
+                       labels = labels) +
+                       scale_y_continuous(breaks = seq(0, 10), limits = c(0, 10)) + 
+    geom_text(aes(y = student_order - 0.5, x= income_bin), label = '×', color = 'black', size = 9) + 
+    labs(title = place_name, 
+         #subtitle = "Judgment Sample", 
+         x = "Judgment Sample", 
+         y = 'Student count') + 
     theme_classic() + 
-    theme(axis.text.x=element_text(size=6),
-          axis.text.y=element_text(size=6)) + 
-    ggtitle("Judgment Sample") +
+    theme(plot.title = element_text(face = 'bold', hjust = 0.5),
+          axis.text.x=element_text(size=6),
+          #axis.text.y=element_text(size=6),
+          axis.text.y=element_blank(), 
+          axis.title.y=element_blank(),
+          axis.ticks.y=element_blank(),
+          axis.line.y=element_blank()) + 
+    # ggtitle("Judgment Sample") +
     ggplot2::annotate("text",
-                      x = max(synthetic_sample_points$median_household_income_noise), y = 7,
+                      x = hi, y = 9,
                       label = "Median income of 100 households",
                       color = "#4472C4", fontface = "bold", hjust = 1) +
     ggplot2::annotate("text",
-                      x = max(synthetic_sample_points$median_household_income_noise), y = 8,
+                      x = hi, y = 10,
                       label = "Mean of medians of students' samples",
                       color = "#F5870C", fontface = "bold", hjust = 1)
 
@@ -1005,15 +1143,18 @@ remaining_list <- county_place_map %>%
                size = 2) +
     scale_x_continuous(breaks = seq(lo, hi, by = bin_width),
                        limits = c(lo, hi),
-                       labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
-    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 8)) + 
-    geom_text(aes(y = student_order - 0.5, x= income_bin), label = '×', color = 'black', size = 10) + 
-    labs(x = "Household income", y = 'Student count') + 
+                       labels = labels) +
+    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 10)) + 
+    geom_text(aes(y = student_order - 0.5, x= income_bin), label = '×', color = 'black', size = 9) + 
+    labs(#subtitle = "Simple Random Sample (SRS)",
+         x = "Simple Random Sample (SRS)", 
+         y = 'Student count') + 
     theme_classic() + 
     theme(axis.text.x=element_text(size=6),
-          axis.text.y=element_text(size=6)) + 
-    ggtitle("Simple Random Sample (SRS)")
-
+          axis.text.y=element_blank(), 
+          axis.title.y=element_blank(),
+          axis.ticks.y=element_blank(),
+          axis.line.y=element_blank())
   
   stratified_hist <- ggplot(stratified_samples %>%
            group_by(student_id) %>%
@@ -1039,14 +1180,18 @@ remaining_list <- county_place_map %>%
                size = 2) +
     scale_x_continuous(breaks = seq(lo, hi, by = bin_width),
                        limits = c(lo, hi),
-                       labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
-    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 8)) + 
-    geom_text(aes(y = student_order - 0.5, x= income_bin), label = '×', color = 'black', size = 10) + 
-    labs(x = "Household income", y = 'Student count') + 
+                       labels = labels) +
+    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 10)) + 
+    geom_text(aes(y = student_order - 0.5, x= income_bin), label = '×', color = 'black', size = 9) + 
+    labs(#subtitle = "Stratified Random Sample",
+         x = "Stratified Random Sample", 
+         y = 'Student count') + 
     theme_classic() + 
     theme(axis.text.x=element_text(size=6),
-          axis.text.y=element_text(size=6)) + 
-    ggtitle("Stratified Random Sample")
+          axis.text.y=element_blank(), 
+          axis.title.y=element_blank(),
+          axis.ticks.y=element_blank(),
+          axis.line.y=element_blank()) 
   
   cluster_hist <- ggplot(cluster_samples %>%
                               group_by(student_id) %>%
@@ -1072,167 +1217,113 @@ remaining_list <- county_place_map %>%
                size = 2) +
     scale_x_continuous(breaks = seq(lo, hi, by = bin_width),
                        limits = c(lo, hi),
-                       labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
-    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 8)) + 
-    geom_text(aes(y = student_order - 0.5, x= income_bin), label = '×', color = 'black', size = 10) + 
-    labs(x = "Household income", y = 'Student count') + 
+                       labels = labels) +
+    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 10)) + 
+    geom_text(aes(y = student_order - 0.5, x= income_bin), label = '×', color = 'black', size = 9) + 
+    labs(#subtitle = "Cluster Random Sample",
+         x = "Cluster Random Sample", 
+         y = 'Student count') + 
     theme_classic() + 
     theme(axis.text.x=element_text(size=6),
-          axis.text.y=element_text(size=6)) + 
-    ggtitle("Cluster Random Sample")
+          axis.text.y=element_blank(), 
+          axis.title.y=element_blank(),
+          axis.ticks.y=element_blank(),
+          axis.line.y=element_blank())
+
+  (key <- judgment_hist / simple_hist / cluster_hist / stratified_hist)
   
-  (key <- judgment_hist / simple_hist / stratified_hist / cluster_hist)
-  
-  # ggsave(plot = key,
-         # filename = paste0(wd_output,'/',gsub("\\s+|\\.|\\/", "_", tolower(place_name) ), '_key', '.pdf'),
-         # width = 8.5, height = 11) # dpi = 300,
+  ggsave(plot = key,
+  filename = paste0(wd_output,'/Teacher/', place_name_lower, '_teacher_version', '.pdf'),
+  width = 8.5, height = 11) # dpi = 300,
   
   # judgment_hist / simple_hist / stratified_hist / cluster_hist
   
-  # Blank keys  -------------------------------------------------------------
+  # Blank key  -------------------------------------------------------------
   
   blank_judgment_hist <- ggplot() + 
     # geom_density(data = synthetic_sample_points, 
     #              aes(x = median_household_income_noise, y = after_stat(density) * (max(synthetic_sample_points$median_household_income_noise) - min(synthetic_sample_points$median_household_income_noise)))) +
     scale_x_continuous(breaks = seq(lo, hi, by = bin_width),
                        limits = c(lo, hi),
-                       labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
-    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 8)) + 
-    labs(x = "Household income", y = 'Student count') + 
+                       labels = labels) +
+    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 10)) + 
+    labs(title = "Sampling Distributions for Median Household Income", 
+         x = "Judgment Sample", 
+         y = 'Student count') + 
     theme_classic() + 
-    theme(axis.text.x=element_text(size=6),
-          axis.text.y=element_text(size=6)) + 
-    ggtitle("Judgment Sample")
+    theme(plot.title = element_text(face = 'bold', hjust = 0.5),
+          axis.text.x=element_text(size=6),
+          axis.text.y=element_blank(), 
+          axis.title.y=element_blank(),
+          axis.ticks.y=element_blank(),
+          axis.line.y=element_blank())
   
   blank_simple_hist <- ggplot() + 
     # geom_density(data = synthetic_sample_points, 
     #              aes(x = median_household_income_noise, y = after_stat(density) * (max(synthetic_sample_points$median_household_income_noise) - min(synthetic_sample_points$median_household_income_noise)))) +
     scale_x_continuous(breaks = seq(lo, hi, by = bin_width),
                        limits = c(lo, hi),
-                       labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
-    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 8)) + 
-    labs(x = "Household income", y = 'Student count') + 
+                       labels = labels) +
+    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 10)) + 
+    labs(x = "Simple Random Sample (SRS)", 
+         y = 'Student count') + 
     theme_classic() + 
     theme(axis.text.x=element_text(size=6),
-          axis.text.y=element_text(size=6)) + 
-    ggtitle("Simple Random Sample (SRS)")
+          axis.text.y=element_blank(), 
+          axis.title.y=element_blank(),
+          axis.ticks.y=element_blank(),
+          axis.line.y=element_blank())
   
   blank_stratified_hist <- ggplot() + 
     # geom_density(data = synthetic_sample_points, 
     #              aes(x = median_household_income_noise, y = after_stat(density) * (max(synthetic_sample_points$median_household_income_noise) - min(synthetic_sample_points$median_household_income_noise)))) +
     scale_x_continuous(breaks = seq(lo, hi, by = bin_width),
                        limits = c(lo, hi),
-                       labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
-    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 8)) + 
-    labs(x = "Household income", y = 'Student count') + 
+                       labels = labels) +
+    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 10)) + 
+    labs(x = "Stratified Random Sample", 
+         y = 'Student count') + 
     theme_classic() + 
     theme(axis.text.x=element_text(size=6),
-          axis.text.y=element_text(size=6)) + 
-    ggtitle("Stratified Random Sample")
+          axis.text.y=element_blank(), 
+          axis.title.y=element_blank(),
+          axis.ticks.y=element_blank(),
+          axis.line.y=element_blank())
   
   blank_cluster_hist <- ggplot() + 
     # geom_density(data = synthetic_sample_points, 
     #              aes(x = median_household_income_noise, y = after_stat(density) * (max(synthetic_sample_points$median_household_income_noise) - min(synthetic_sample_points$median_household_income_noise)))) +
     scale_x_continuous(breaks = seq(lo, hi, by = bin_width),
                        limits = c(lo, hi),
-                       labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
-    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 8)) + 
-    labs(x = "Household income", y = 'Student count') + 
+                       labels = labels) +
+    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 10)) + 
+    labs(x = "Cluster Random Sample", 
+         y = 'Student count') + 
     theme_classic() + 
     theme(axis.text.x=element_text(size=6),
-          axis.text.y=element_text(size=6)) + 
-    ggtitle("Cluster Random Sample")
+          axis.text.y=element_blank(), 
+          axis.title.y=element_blank(),
+          axis.ticks.y=element_blank(),
+          axis.line.y=element_blank())
   
-  blank_key <- blank_judgment_hist / blank_simple_hist / blank_stratified_hist / blank_cluster_hist
+  (blank_key <- blank_judgment_hist / blank_simple_hist / blank_cluster_hist / blank_stratified_hist)
   
-  # ggsave(plot = blank_key, 
-  #        filename = paste0(wd_output,'/',gsub("\\s+|\\.|\\/", "_", tolower(place_name) ), '_blank_key', '.pdf'), 
-  #        width = 8.5, height = 11) # dpi = 300,
+  ggsave(plot = blank_key,
+         filename = paste0(wd_output,'/Plots/', place_name_lower, '_blank_key', '.pdf'),
+         width = 8.5, height = 11) # dpi = 300,
   
-  # QC ----------------------------------------------------------------------
-  if (!check(synthetic_sample_points)) {
-    warning(sprintf("%s did not pass the QC check", place_name))
-  } else {
-    sprintf("%s passed the QC check!", place_name)
-  }
+  # PDF Combining -----------------------------------------------------------
   
-# } # End of loop
-
-# Sampling functions
-judgment <- function(pop) {
-  return(pop %>% slice_sample(n = 10, weight_by = median_household_income_noise ** 2))
-}
-
-simple_rs <- function(pop) {
-  return(pop %>% slice_sample(n = 10))
-}
-
-stratified_rs <- function(pop) {
-  return(pop %>% group_by(cluster_id) %>% slice_sample(n = 1) %>% ungroup())
-}
-
-cluster_rs <- function(pop) {
-  cluster <- unique(pop$cluster_id) %>% sample(., 1)
-  return(pop %>% filter(cluster_id == cluster))
-}
-
-biased <- function(medians, distance, true_median) {
-  # A <- max(c(lo, hi))
-  # B <- abs(true_median - mean(medians))
-  # return(B/A > 0.25) # Change this to be 25% of the distance from the true median to the furthest median in cluster sampling
-  return(distance/(abs(true_median - mean(medians))) > 0.25)
-}
-
-# Check function
-check <- function(pop, n_students = 20) {
-  # Generate samples
-  # Aggregate samples
-  simple_medians <- map_dfr(.x = seq(1, n_students), .f = function(x) {
-    simple_rs(pop) %>% mutate(student_id = x)
-  }) %>% 
-    group_by(student_id) %>% 
-    summarize(median = median(median_household_income_noise)) %>%
-    ungroup() %>%
-    select(median)
+  qpdf::pdf_combine(input = c(paste0(wd_output,'/Plots/', place_name_lower, '_map', '.pdf'), 
+                              paste0(wd_output,'/Plots/', place_name_lower, '_table', '.pdf'),
+                              paste0(wd_output,'/Plots/', place_name_lower, '_blank_key', '.pdf')),
+                    output = paste0(wd_output,'/Student/', place_name_lower, '_student_version', '.pdf'))
   
-  stratified_medians <- map_dfr(.x = seq(1, num_students), .f = function(x) {
-    stratified_rs(pop) %>% mutate(student_id = x)
-  }) %>% 
-    group_by(student_id) %>% 
-    summarize(median = median(median_household_income_noise)) %>%
-    ungroup() %>%
-    select(median)
+  # qpdf::pdf_combine(input = c(paste0(wd_output,'/Plots/', place_name_lower, '_key', '.pdf'),
+  #                             **INSERT NOTES FILE HERE**),
+  #                   output = c(paste0(wd_output,'/Teacher/', place_name_lower, '_teacher_version', '.pdf')))
   
-  cluster_medians <- map_dfr(.x = seq(1, num_students), .f = function(x) {
-    cluster_rs(pop) %>% mutate(student_id = x)
-  }) %>% 
-    group_by(student_id) %>% 
-    summarize(median = median(median_household_income_noise)) %>%
-    ungroup() %>%
-    select(median)
-  
-  # Calculate variances and check rank
-  simple_var <- var(simple_medians$median)
-  stratified_var <- var(stratified_medians$median)
-  cluster_var <- var(cluster_medians$median)
-  # simple_var <- var(simple_medians)
-  # stratified_var <- var(stratified_medians)
-  # cluster_var <- var(cluster_medians)
-  
-  if (stratified_var > simple_var | simple_var > cluster_var) {
-    return(FALSE)
-  }
-  
-  # Check bias
-  true_median <- median(pop$median_household_income_noise)
-  all_medians <- bind_rows(simple_medians, stratified_medians, cluster_medians)
-  lo <- min(all_medians$median)
-  hi <- max(all_medians$median)
-  distance <- max(abs(lo - true_median), abs(hi - true_median))
-  return(abs(true_median - mean(simple_medians$median))/distance <= 0.25 &
-           abs(true_median - mean(stratified_medians$median))/distance <= 0.25 &
-           abs(true_median - mean(cluster_medians$median))/distance <= 0.25)
-}
+} # End of loop
 
 # Appendix ------------------------------------------------------------------
 
@@ -1355,3 +1446,54 @@ check <- function(pop, n_students = 20) {
 #   theme_classic() + 
 #   labs(x = 'Median income', y = 'Student count') + 
 #   ggtitle("Cluster Random Sample")
+
+# Old check function
+# check <- function(pop, n_students = 20) {
+#   # Generate samples
+#   # Aggregate samples
+#   simple_medians <- map_dfr(.x = seq(1, n_students), .f = function(x) {
+#     simple_rs(pop) %>% mutate(student_id = x)
+#   }) %>% 
+#     group_by(student_id) %>% 
+#     summarize(median = median(median_household_income_noise)) %>%
+#     ungroup() %>%
+#     select(median)
+#   
+#   stratified_medians <- map_dfr(.x = seq(1, num_students), .f = function(x) {
+#     stratified_rs(pop) %>% mutate(student_id = x)
+#   }) %>% 
+#     group_by(student_id) %>% 
+#     summarize(median = median(median_household_income_noise)) %>%
+#     ungroup() %>%
+#     select(median)
+#   
+#   cluster_medians <- map_dfr(.x = seq(1, num_students), .f = function(x) {
+#     cluster_rs(pop) %>% mutate(student_id = x)
+#   }) %>% 
+#     group_by(student_id) %>% 
+#     summarize(median = median(median_household_income_noise)) %>%
+#     ungroup() %>%
+#     select(median)
+#   
+#   # Calculate variances and check rank
+#   simple_var <- var(simple_medians$median)
+#   stratified_var <- var(stratified_medians$median)
+#   cluster_var <- var(cluster_medians$median)
+#   # simple_var <- var(simple_medians)
+#   # stratified_var <- var(stratified_medians)
+#   # cluster_var <- var(cluster_medians)
+#   
+#   if (stratified_var > simple_var | simple_var > cluster_var) {
+#     return(FALSE)
+#   }
+#   
+#   # Check bias
+#   true_median <- median(pop$median_household_income_noise)
+#   all_medians <- bind_rows(simple_medians, stratified_medians, cluster_medians)
+#   lo <- min(all_medians$median)
+#   hi <- max(all_medians$median)
+#   distance <- max(abs(lo - true_median), abs(hi - true_median))
+#   return(abs(true_median - mean(simple_medians$median))/distance <= 0.25 &
+#            abs(true_median - mean(stratified_medians$median))/distance <= 0.25 &
+#            abs(true_median - mean(cluster_medians$median))/distance <= 0.25)
+# }
