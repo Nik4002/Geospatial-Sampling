@@ -28,10 +28,18 @@ set.seed(seed = 100)
 
 # Directory ---------------------------------------------------------------
 
+# If debug is set to TRUE, no plots will be saved
+debug <- TRUE
+
 # Replace with your own paths
-wd_input = '/Users/nm/Desktop/Projects/work/skew-the-script/inputs.nosync'
+# wd_input = '/Users/nm/Desktop/Projects/work/skew-the-script/inputs.nosync'
 # wd_output = '/Users/nm/Desktop/Projects/work/skew-the-script/outputs.nosync'
-wd_output = '/Users/nikhilpatel/Documents/Projects/Geospatial_Sampling'
+# wd_output = '/Users/nikhilpatel/Documents/Projects/Geospatial_Sampling'
+if (debug == FALSE) {
+  wd <- '/Users/nikhilpatel/Documents/Projects/Geospatial_Sampling'
+} else {
+  wd <- '/Users/nikhilpatel/Documents/Projects/Geospatial_Sampling/Debug'
+}
 
 # Sampling functions
 
@@ -117,6 +125,9 @@ census_data_dict <- load_variables(year = 2020, dataset = c('acs5'), cache = FAL
 # Read in Census Places (cities) population data
 places_pop <- read_csv('https://www2.census.gov/programs-surveys/popest/datasets/2020-2022/cities/totals/sub-est2022.csv')
 
+# Read in state abbreviations
+states <- read.csv(paste0(wd, "/states.csv"))
+
 # Filter to largest 100 Places
 places_pop_rank <- places_pop %>%
   rename_all(tolower) %>% 
@@ -127,7 +138,9 @@ places_pop_rank <- places_pop %>%
          placeid = paste0(state,place)) %>%
   rename(cityname = name) %>%
   mutate(city_rank = row_number(desc(popestimate2022))) %>%
-  filter(city_rank <= 100)
+  filter(city_rank <= 100) %>%
+  left_join(., states, by = join_by(stname == State)) %>%
+  rename("abbrev" = "Abbreviation")
 rm(places_pop)
 
 places_list <- places(cb = TRUE, year = 2020) %>%
@@ -158,7 +171,7 @@ county_place_map <- places_list %>%
   mutate(name_short_strip = gsub("\\s+|\\.|\\/", "_", tolower(name_short)))
 
 # System for removing cities that have already been processed
-finished_list <- gsub(".pdf", "",list.files(path = wd_output, pattern = "\\.pdf$", full.names = FALSE))
+finished_list <- gsub(".pdf", "",list.files(path = wd, pattern = "\\.pdf$", full.names = FALSE))
 
 remaining_list <- county_place_map %>% 
   filter(!(name_short_strip %in% finished_list))
@@ -169,12 +182,9 @@ remaining_list <- county_place_map %>%
 qc_fails <- c()
 qc_passes <- c()
 
-# If debug is set to TRUE, no plots will be saved
-debug <- TRUE
-
 # Beginning of loop; filter clause is for if you want to start the loop in the middle
 # for (i in unique((remaining_list %>% filter(city_rank >= 0))$geoid)) {
-  # i <- "1714000" # Chicago
+  i <- "1714000" # Chicago
   # i <- "2255000" # New Orleans (wide city)
   # i <- "1571550" # Urban Honolulu
   # i <- "5548000" # Madison
@@ -184,14 +194,16 @@ debug <- TRUE
   # i <- "0613392" # Chula Vista
   # i <- "0667000" # San Francisco (city with weird island)
   # i <- "4865000" # San Antonio
-  i <- "1304000" # Atlanta
+  # i <- "1304000" # Atlanta
   
   # Pull place name (ex: "San Antonio")
   place_name <- county_place_map %>% filter(geoid == i) %>% st_drop_geometry() %>%
     select(name_short) %>% pull() %>% unique()
   
+  state_abbrev <- places_pop_rank %>% filter(placeid == i) %>% select(abbrev) %>% pull()
+  
   # Convert place name to snake case (ex: "san_antonio")
-  place_name_lower <- gsub("\\s+|\\.|\\/", "_", tolower(place_name))
+  place_name_lower <- paste0(gsub("\\s+|\\.|\\/", "_", tolower(place_name)), "_", tolower(state_abbrev))
   
   print(place_name)
   
@@ -839,22 +851,22 @@ debug <- TRUE
   
   map
   
-  if (debug == FALSE) {
+  # if (debug == FALSE) {
     edges <- st_bbox(clusters_10)
     if (edges$xmax - edges$xmin > edges$ymax - edges$ymin) { # If width is greater than height, save as a landscape PDF and rotate
       ggsave(plot = map,
-             filename = paste0(wd_output,'/Plots/', place_name_lower, '_map_landscape', '.pdf'),
+             filename = paste0(wd,'/Plots/', place_name_lower, '_map_landscape', '.pdf'),
              width = 11, height = 8.5) # dpi = 300,
-      qpdf::pdf_rotate_pages(input = paste0(wd_output,'/Plots/', place_name_lower, '_map_landscape', '.pdf'),
+      qpdf::pdf_rotate_pages(input = paste0(wd,'/Plots/', place_name_lower, '_map_landscape', '.pdf'),
                              pages = c(1), 
                              angle = 90,
-                             output = paste0(wd_output,'/Plots/', place_name_lower, '_map', '.pdf'))
+                             output = paste0(wd,'/Plots/', place_name_lower, '_map', '.pdf'))
     } else { # Otherwise, save as a portrait PDF
       ggsave(plot = map,
-             filename = paste0(wd_output,'/Plots/', place_name_lower, '_map', '.pdf'),
+             filename = paste0(wd,'/Plots/', place_name_lower, '_map', '.pdf'),
              width = 8.5, height = 11) # dpi = 300,
     }
-  }
+  # }
   
   # Tables ------------------------------------------------------------------
   
@@ -947,11 +959,11 @@ debug <- TRUE
   (regions_and_table <- region_map + table_1_5 + table_6_10 + 
     plot_layout(design = design2, guides = "collect"))
 
-  if (debug == FALSE) {
+  # if (debug == FALSE) {
     ggsave(plot = regions_and_table,
-           filename = paste0(wd_output,'/Plots/', place_name_lower, '_table', '.pdf'),
+           filename = paste0(wd,'/Plots/', place_name_lower, '_table', '.pdf'),
            width = 8.5, height = 11) # dpi = 300,
-  }
+  # }
 
   # Teacher's Key -----------------------------------------------------------
   
@@ -1160,11 +1172,11 @@ debug <- TRUE
 
   (key <- judgment_hist / simple_hist / cluster_hist / stratified_hist)
   
-  if (debug == FALSE) {
+  # if (debug == FALSE) {
     ggsave(plot = key,
-    filename = paste0(wd_output,'/Teacher/', place_name_lower, '_teacher_version', '.pdf'),
+    filename = paste0(wd,'/Plots/', place_name_lower, '_key', '.pdf'),
     width = 8.5, height = 11) # dpi = 300,
-  }
+  # }
   
   # Blank key  -------------------------------------------------------------
   
@@ -1228,20 +1240,25 @@ debug <- TRUE
   
   (blank_key <- blank_judgment_hist / blank_simple_hist / blank_cluster_hist / blank_stratified_hist)
   
-  if (debug == FALSE) {
+  # if (debug == FALSE) {
     ggsave(plot = blank_key,
-           filename = paste0(wd_output,'/Plots/', place_name_lower, '_blank_key', '.pdf'),
+           filename = paste0(wd,'/Plots/', place_name_lower, '_blank_key', '.pdf'),
            width = 8.5, height = 11) # dpi = 300,
-  }
+  # }
   
   # PDF Combining -----------------------------------------------------------
   
-  if (debug == FALSE) {
-    qpdf::pdf_combine(input = c(paste0(wd_output,'/Plots/', place_name_lower, '_map', '.pdf'), 
-                                paste0(wd_output,'/Plots/', place_name_lower, '_table', '.pdf'),
-                                paste0(wd_output,'/Plots/', place_name_lower, '_blank_key', '.pdf')),
-                      output = paste0(wd_output,'/Student/', place_name_lower, '_student_version', '.pdf'))
-  }
+  # if (debug == FALSE) {
+    qpdf::pdf_combine(input = c(paste0(wd,'/Plots/', place_name_lower, '_map', '.pdf'), 
+                                paste0(wd,'/Plots/', place_name_lower, '_table', '.pdf'),
+                                paste0(wd,'/Plots/', place_name_lower, '_blank_key', '.pdf')),
+                      output = paste0(wd,'/Student/', place_name_lower, '_student_version', '.pdf'))
+    
+    qpdf::pdf_combine(input = c(paste0(wd,'/Plots/', place_name_lower, '_map', '.pdf'), 
+                                paste0(wd,'/Plots/', place_name_lower, '_table', '.pdf'),
+                                paste0(wd,'/Plots/', place_name_lower, '_key', '.pdf')),
+                      output = paste0(wd,'/Teacher/', place_name_lower, '_teacher_version', '.pdf'))
+  # }
   
 # } # End of loop (uncomment if looping)
 
