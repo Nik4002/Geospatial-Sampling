@@ -851,22 +851,20 @@ qc_passes <- c()
   
   map
   
-  # if (debug == FALSE) {
-    edges <- st_bbox(clusters_10)
-    if (edges$xmax - edges$xmin > edges$ymax - edges$ymin) { # If width is greater than height, save as a landscape PDF and rotate
-      ggsave(plot = map,
-             filename = paste0(wd,'/Plots/', place_name_lower, '_map_landscape', '.pdf'),
-             width = 11, height = 8.5) # dpi = 300,
-      qpdf::pdf_rotate_pages(input = paste0(wd,'/Plots/', place_name_lower, '_map_landscape', '.pdf'),
-                             pages = c(1), 
-                             angle = 90,
-                             output = paste0(wd,'/Plots/', place_name_lower, '_map', '.pdf'))
-    } else { # Otherwise, save as a portrait PDF
-      ggsave(plot = map,
-             filename = paste0(wd,'/Plots/', place_name_lower, '_map', '.pdf'),
-             width = 8.5, height = 11) # dpi = 300,
-    }
-  # }
+  edges <- st_bbox(clusters_10)
+  if (edges$xmax - edges$xmin > edges$ymax - edges$ymin) { # If width is greater than height, save as a landscape PDF and rotate
+    ggsave(plot = map,
+           filename = paste0(wd,'/Plots/', place_name_lower, '_map_landscape', '.pdf'),
+           width = 11, height = 8.5) # dpi = 300,
+    qpdf::pdf_rotate_pages(input = paste0(wd,'/Plots/', place_name_lower, '_map_landscape', '.pdf'),
+                           pages = c(1), 
+                           angle = 90,
+                           output = paste0(wd,'/Plots/', place_name_lower, '_map', '.pdf'))
+  } else { # Otherwise, save as a portrait PDF
+    ggsave(plot = map,
+           filename = paste0(wd,'/Plots/', place_name_lower, '_map', '.pdf'),
+           width = 8.5, height = 11) # dpi = 300,
+  }
   
   # Tables ------------------------------------------------------------------
   
@@ -959,11 +957,9 @@ qc_passes <- c()
   (regions_and_table <- region_map + table_1_5 + table_6_10 + 
     plot_layout(design = design2, guides = "collect"))
 
-  # if (debug == FALSE) {
-    ggsave(plot = regions_and_table,
-           filename = paste0(wd,'/Plots/', place_name_lower, '_table', '.pdf'),
-           width = 8.5, height = 11) # dpi = 300,
-  # }
+  ggsave(plot = regions_and_table,
+         filename = paste0(wd,'/Plots/', place_name_lower, '_table', '.pdf'),
+         width = 8.5, height = 11) # dpi = 300,
 
   # Teacher's Key -----------------------------------------------------------
   
@@ -1172,11 +1168,9 @@ qc_passes <- c()
 
   (key <- judgment_hist / simple_hist / cluster_hist / stratified_hist)
   
-  # if (debug == FALSE) {
-    ggsave(plot = key,
-    filename = paste0(wd,'/Plots/', place_name_lower, '_key', '.pdf'),
-    width = 8.5, height = 11) # dpi = 300,
-  # }
+  ggsave(plot = key,
+  filename = paste0(wd,'/Plots/', place_name_lower, '_key', '.pdf'),
+  width = 8.5, height = 11) # dpi = 300,
   
   # Blank key  -------------------------------------------------------------
   
@@ -1240,25 +1234,21 @@ qc_passes <- c()
   
   (blank_key <- blank_judgment_hist / blank_simple_hist / blank_cluster_hist / blank_stratified_hist)
   
-  # if (debug == FALSE) {
-    ggsave(plot = blank_key,
-           filename = paste0(wd,'/Plots/', place_name_lower, '_blank_key', '.pdf'),
-           width = 8.5, height = 11) # dpi = 300,
-  # }
+  ggsave(plot = blank_key,
+         filename = paste0(wd,'/Plots/', place_name_lower, '_blank_key', '.pdf'),
+         width = 8.5, height = 11) # dpi = 300,
   
   # PDF Combining -----------------------------------------------------------
   
-  # if (debug == FALSE) {
-    qpdf::pdf_combine(input = c(paste0(wd,'/Plots/', place_name_lower, '_map', '.pdf'), 
-                                paste0(wd,'/Plots/', place_name_lower, '_table', '.pdf'),
-                                paste0(wd,'/Plots/', place_name_lower, '_blank_key', '.pdf')),
-                      output = paste0(wd,'/Student/', place_name_lower, '_student_version', '.pdf'))
+  qpdf::pdf_combine(input = c(paste0(wd,'/Plots/', place_name_lower, '_map', '.pdf'), 
+                              paste0(wd,'/Plots/', place_name_lower, '_table', '.pdf'),
+                              paste0(wd,'/Plots/', place_name_lower, '_blank_key', '.pdf')),
+                    output = paste0(wd,'/Student/', place_name_lower, '_student_version', '.pdf'))
     
-    qpdf::pdf_combine(input = c(paste0(wd,'/Plots/', place_name_lower, '_map', '.pdf'), 
-                                paste0(wd,'/Plots/', place_name_lower, '_table', '.pdf'),
-                                paste0(wd,'/Plots/', place_name_lower, '_key', '.pdf')),
-                      output = paste0(wd,'/Teacher/', place_name_lower, '_teacher_version', '.pdf'))
-  # }
+  qpdf::pdf_combine(input = c(paste0(wd,'/Plots/', place_name_lower, '_map', '.pdf'), 
+                              paste0(wd,'/Plots/', place_name_lower, '_table', '.pdf'),
+                              paste0(wd,'/Plots/', place_name_lower, '_key', '.pdf')),
+                    output = paste0(wd,'/Teacher/', place_name_lower, '_teacher_version', '.pdf'))
   
 # } # End of loop (uncomment if looping)
 
