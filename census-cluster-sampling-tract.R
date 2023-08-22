@@ -822,9 +822,9 @@ qc_passes <- c()
       guides(color = guide_legend(override.aes = list(size = 6, alpha = 1))) +
       labs(title = place_name, 
            subtitle = paste0("100 representative people in 10 regions in ", place_name, " (10 per region)"),
-           caption = "*Complete race/ethnicity names from U.S. Census:\n
-                        Asian: Asian, Native Hawaiian and Other Pacific Islander; Black: Black or African American;\n
-                        Latino/a: Hispanic or Latino; Multiracial: Two or more races, Other races;\n
+           caption = "*Complete race/ethnicity names from U.S. Census:
+                        Asian: Asian, Native Hawaiian and Other Pacific Islander; Black: Black or African American;
+                        Latino/a: Hispanic or Latino; Multiracial: Two or more races, Other races;
                         Native: American Indian and Alaska Native; White: White.") +
       theme_void() + theme(legend.position = 'right',
                            legend.justification = "top",
