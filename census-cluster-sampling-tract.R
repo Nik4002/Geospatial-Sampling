@@ -381,7 +381,7 @@ qc_passes <- c()
     rename(race_population = estimate,
            race = variable_label)
   
-  # Create wide dataframe of race shares for each block group
+  # Create wide dataframe of race shares for each tract
   tract_data_race_wide <-  tract_data_race %>%
     pivot_wider(id_cols = c(geoid),
                 names_from = c(race),
@@ -423,7 +423,7 @@ qc_passes <- c()
   
   # Combine data ------------------------------------------------------------
   
-  # Join together block group data
+  # Join together tract data
   tract_data_all <- tract_data %>%
     left_join(., tract_data_race_wide, by = c('geoid'='geoid')) %>%
     left_join(., tract_data_plurality_race, by = c('geoid'='geoid')) %>%
