@@ -5,6 +5,10 @@ library(dplyr)
 library(tidyverse)
 library(sf)
 library(nngeo)
+library(terra)
+library(sf)
+library(units)
+library(smoothr)
 # census
 library(tidycensus)
 library(tigris)
@@ -184,11 +188,11 @@ qc_passes <- c()
 
 # Beginning of loop; filter clause is for if you want to start the loop in the middle
 # for (i in unique((remaining_list %>% filter(city_rank >= 0))$geoid)) {
-  i <- "1714000" # Chicago
+  # i <- "1714000" # Chicago
   # i <- "2255000" # New Orleans (wide city)
   # i <- "1571550" # Urban Honolulu
   # i <- "5548000" # Madison
-  # i <- "2507000" # Boston
+  i <- "2507000" # Boston
   # i <- "0820000" # Denver
   # i <- "0675000" # Stockton
   # i <- "0613392" # Chula Vista
@@ -925,8 +929,8 @@ qc_passes <- c()
   (region_map <- ggplot() +
      geom_sf(data = water_layer, color = '#d1edff', fill = '#d1edff', alpha = 1, linewidth = .6) +
      geom_sf(data = city_border, color = 'gray', alpha = 0, linewidth = .6) +
-     geom_sf(data = clusters_10, fill = '#cfd0c5', alpha = 0, linewidth = .6) + 
-     geom_sf(data = roads_layer, color = 'white', alpha = 1, linewidth = .4) +
+     geom_sf(data = roads_layer, color = '#fae7af', alpha = 1, linewidth = .6) +
+     geom_sf(data = clusters_10, aes(fill = cluster_id), alpha = 0.2, linewidth = .6) + 
      geom_sf(data = bbox, alpha = 0, linewidth = 1) + 
      geom_sf(data = clusters_10, color = '#333333', alpha = 0, linewidth = .4) +
      geom_text(data = clusters_10 %>% st_difference(., clusters_10 %>% st_boundary() %>% st_buffer(500) %>% st_simplify()) %>% filter(c(cluster_id == cluster_id.1)) %>% 
@@ -941,6 +945,7 @@ qc_passes <- c()
                           panel.border = element_blank(),
                           panel.background = element_blank(),
                           plot.margin=unit(c(t=0,r=0,b=0,l=0), "pt"),
+                          legend.position = 'none'
      )
   )
   
