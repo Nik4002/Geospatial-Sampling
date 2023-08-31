@@ -12,6 +12,7 @@ library(smoothr)
 # census
 library(tidycensus)
 library(tigris)
+library(osmdata)
 # viz
 library(patchwork)
 library(scales)
@@ -19,6 +20,7 @@ library(viridis)
 library(gt)
 library(gtExtras)
 library(ggpmisc)
+library(ggpattern)
 # utilities
 library(janitor)
 library(conflicted)
@@ -213,7 +215,8 @@ qc_passes <- c()
   
   # Get the place's geometry
   places_geo <- places_list %>% filter(geoid == i) %>%
-    rename(placeid = geoid) %>% select(placeid, geometry)
+    rename(placeid = geoid) %>% select(placeid, geometry) %>%
+    fill_holes(threshold = 100000000) # Fill any holes in the city's border, even if this includes other cities
   
   # Get relevant FIPS codes
   city_fips <- county_place_map %>% filter(geoid == i) %>% st_drop_geometry() %>%
@@ -261,6 +264,10 @@ qc_passes <- c()
     st_crs(bbox) <- st_crs(4326)
     city_border <- city_border %>% st_intersection(bbox)
   }
+  
+  # Save empty tracts
+  empty_tracts <- tract_data %>%
+    filter(is.na(total_population) | total_population == 0)
   
   # Remove empty tracts
   tract_data <- tract_data  %>%
@@ -801,7 +808,8 @@ qc_passes <- c()
   (map <- ggplot() +
       geom_sf(data = bbox, fill = 'white', alpha = 1) + # White background
       geom_sf(data = water_layer, color = '#d1edff', fill = '#d1edff', alpha = 1, linewidth = .6) +
-      geom_sf(data = city_border, color = 'gray', alpha = 0, linewidth = .6) +
+      geom_sf_pattern(data = empty_tracts %>% st_union(), pattern = 'stripe', pattern_fill = '#eeeeee', pattern_colour = '#999999', alpha = 0.5, pattern_density = 0.5, pattern_angle = 45, pattern_spacing = 0.025) +
+      geom_sf(data = city_border, color = '#999999', alpha = 0, linewidth = .6) +
       geom_sf(data = roads_layer, color = '#fae7af', alpha = 1, linewidth = .6) +
       geom_sf(data = bbox, color = '#999999', alpha = 0, linewidth = 1) + # Map border
       geom_sf(data = clusters_10, color = '#333333', alpha = 0, linewidth = .4) +
@@ -878,7 +886,7 @@ qc_passes <- c()
     mutate(median_household_income_noise = paste0('$',comma(median_household_income_noise, accuracy = 1L)) 
     ) %>%
     mutate(race = case_when(race == 'Asian/Pacific Islander' ~ 'Asian',
-                            race == 'Multiracial/Other' ~ 'Other',
+                            race == 'Multiracial/Other' ~ 'Multi.',
                             race == 'Native American' ~ 'Native',
                             TRUE ~ as.character(race)
     ) ) %>%
@@ -928,7 +936,8 @@ qc_passes <- c()
   
   (region_map <- ggplot() +
      geom_sf(data = water_layer, color = '#d1edff', fill = '#d1edff', alpha = 1, linewidth = .6) +
-     geom_sf(data = city_border, color = 'gray', alpha = 0, linewidth = .6) +
+     geom_sf_pattern(data = empty_tracts %>% st_union(), pattern = 'stripe', pattern_fill = '#eeeeee', pattern_colour = '#999999', alpha = 0.5, pattern_density = 0.5, pattern_angle = 45, pattern_spacing = 0.025) +
+     geom_sf(data = city_border, color = '#999999', alpha = 0, linewidth = .6) +
      geom_sf(data = roads_layer, color = '#fae7af', alpha = 1, linewidth = .6) +
      geom_sf(data = clusters_10, aes(fill = cluster_id), alpha = 0.2, linewidth = .6) + 
      geom_sf(data = bbox, alpha = 0, linewidth = 1) + 
