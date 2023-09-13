@@ -5,9 +5,14 @@ library(dplyr)
 library(tidyverse)
 library(sf)
 library(nngeo)
+library(terra)
+library(sf)
+library(units)
+library(smoothr)
 # census
 library(tidycensus)
 library(tigris)
+library(osmdata)
 # viz
 library(patchwork)
 library(scales)
@@ -15,6 +20,7 @@ library(viridis)
 library(gt)
 library(gtExtras)
 library(ggpmisc)
+library(ggpattern)
 # utilities
 library(janitor)
 library(conflicted)
@@ -29,7 +35,7 @@ set.seed(seed = 100)
 # Directory ---------------------------------------------------------------
 
 # If debug is set to TRUE, no plots will be saved
-debug <- TRUE
+debug <- FALSE
 
 # Replace with your own paths
 # wd_input = '/Users/nm/Desktop/Projects/work/skew-the-script/inputs.nosync'
@@ -183,8 +189,8 @@ qc_fails <- c()
 qc_passes <- c()
 
 # Beginning of loop; filter clause is for if you want to start the loop in the middle
-# for (i in unique((remaining_list %>% filter(city_rank >= 0))$geoid)) {
-  i <- "1714000" # Chicago
+for (i in unique((remaining_list %>% filter(city_rank >= 65))$geoid)) {
+  # i <- "1714000" # Chicago
   # i <- "2255000" # New Orleans (wide city)
   # i <- "1571550" # Urban Honolulu
   # i <- "5548000" # Madison
@@ -209,7 +215,8 @@ qc_passes <- c()
   
   # Get the place's geometry
   places_geo <- places_list %>% filter(geoid == i) %>%
-    rename(placeid = geoid) %>% select(placeid, geometry)
+    rename(placeid = geoid) %>% select(placeid, geometry) %>%
+    fill_holes(threshold = 100000000) # Fill any holes in the city's border, even if this includes other cities
   
   # Get relevant FIPS codes
   city_fips <- county_place_map %>% filter(geoid == i) %>% st_drop_geometry() %>%
@@ -257,6 +264,10 @@ qc_passes <- c()
     st_crs(bbox) <- st_crs(4326)
     city_border <- city_border %>% st_intersection(bbox)
   }
+  
+  # Save empty tracts
+  empty_tracts <- tract_data %>%
+    filter(is.na(total_population) | total_population == 0)
   
   # Remove empty tracts
   tract_data <- tract_data  %>%
@@ -590,8 +601,30 @@ qc_passes <- c()
   st_crs(bbox) <- st_crs(4326)
   rm(polygon_points, polygon)
     
-  # Pull roads and water as basemap layers and intersect with expanded bbox
+  # Pull green space, roads, and water as basemap layers and intersect with expanded bbox
+  green_spaces <- opq(bbox = bbox) %>%
+    add_osm_feature(key = 'leisure', value = 'park') %>%
+    osmdata_sf()
+  if (is.null(green_spaces$osm_multipolygons)) {
+    if (is.null(green_spaces$osm_polygons)) {
+      green_layer <- st_sf(st_sfc())
+    } else {
+      green_layer <- green_spaces$osm_polygons %>% select(osm_id) %>% st_make_valid() %>% st_intersection(., bbox) %>% st_union()
+    }
+  } else {
+    if (is.null(green_spaces$osm_polygons)) {
+      green_layer <- green_spaces$osm_multipolygons %>% select(osm_id) %>% st_make_valid() %>% st_intersection(., bbox) %>% st_union()
+    } else {
+      green_layer <- rbind(green_spaces$osm_polygons %>% select(osm_id),
+                           green_spaces$osm_multipolygons %>% select(osm_id)) %>% st_make_valid() %>% st_intersection(., bbox) %>% st_union()
+    }
+  }
+
   roads_layer <- tigris::primary_roads(year = 2020) %>%
+    st_transform(4326) %>% 
+    st_intersection(., bbox)
+  
+  secondary_roads_layer <- tigris::primary_secondary_roads(year = 2020, state = places_pop_rank %>% filter(placeid == i) %>% select(state) %>% pull()) %>%
     st_transform(4326) %>% 
     st_intersection(., bbox)
   
@@ -797,8 +830,11 @@ qc_passes <- c()
   (map <- ggplot() +
       geom_sf(data = bbox, fill = 'white', alpha = 1) + # White background
       geom_sf(data = water_layer, color = '#d1edff', fill = '#d1edff', alpha = 1, linewidth = .6) +
-      geom_sf(data = city_border, color = 'gray', alpha = 0, linewidth = .6) +
+      geom_sf(data = green_layer, fill = '#c6f2c2', color = '#ffffffff') + 
+      geom_sf(data = secondary_roads_layer, color = '#fae7af', alpha = 1, linewidth = .4) +
       geom_sf(data = roads_layer, color = '#fae7af', alpha = 1, linewidth = .6) +
+      geom_sf_pattern(data = empty_tracts %>% st_union(), pattern = 'stripe', pattern_fill = '#eeeeee', pattern_colour = '#999999', alpha = 0.5, pattern_density = 0.5, pattern_angle = 45, pattern_spacing = 0.025) +
+      geom_sf(data = city_border, color = '#999999', alpha = 0, linewidth = .6) +
       geom_sf(data = bbox, color = '#999999', alpha = 0, linewidth = 1) + # Map border
       geom_sf(data = clusters_10, color = '#333333', alpha = 0, linewidth = .4) +
       geom_sf(data = synthetic_sample_points %>% # 100 sample points
@@ -874,7 +910,7 @@ qc_passes <- c()
     mutate(median_household_income_noise = paste0('$',comma(median_household_income_noise, accuracy = 1L)) 
     ) %>%
     mutate(race = case_when(race == 'Asian/Pacific Islander' ~ 'Asian',
-                            race == 'Multiracial/Other' ~ 'Other',
+                            race == 'Multiracial/Other' ~ 'Multi.',
                             race == 'Native American' ~ 'Native',
                             TRUE ~ as.character(race)
     ) ) %>%
@@ -924,9 +960,11 @@ qc_passes <- c()
   
   (region_map <- ggplot() +
      geom_sf(data = water_layer, color = '#d1edff', fill = '#d1edff', alpha = 1, linewidth = .6) +
-     geom_sf(data = city_border, color = 'gray', alpha = 0, linewidth = .6) +
-     geom_sf(data = clusters_10, fill = '#cfd0c5', alpha = 0, linewidth = .6) + 
-     geom_sf(data = roads_layer, color = 'white', alpha = 1, linewidth = .4) +
+     geom_sf(data = secondary_roads_layer, color = '#fae7af', alpha = 1, linewidth = .4) +
+     geom_sf(data = roads_layer, color = '#fae7af', alpha = 1, linewidth = .6) +
+     geom_sf_pattern(data = empty_tracts %>% st_union(), pattern = 'stripe', pattern_fill = '#eeeeee', pattern_colour = '#999999', alpha = 0.5, pattern_density = 0.5, pattern_angle = 45, pattern_spacing = 0.025) +
+     geom_sf(data = city_border, color = '#999999', alpha = 0, linewidth = .6) +
+     geom_sf(data = clusters_10, aes(fill = cluster_id), alpha = 0.2, linewidth = .6) + 
      geom_sf(data = bbox, alpha = 0, linewidth = 1) + 
      geom_sf(data = clusters_10, color = '#333333', alpha = 0, linewidth = .4) +
      geom_text(data = clusters_10 %>% st_difference(., clusters_10 %>% st_boundary() %>% st_buffer(500) %>% st_simplify()) %>% filter(c(cluster_id == cluster_id.1)) %>% 
@@ -941,6 +979,7 @@ qc_passes <- c()
                           panel.border = element_blank(),
                           panel.background = element_blank(),
                           plot.margin=unit(c(t=0,r=0,b=0,l=0), "pt"),
+                          legend.position = 'none'
      )
   )
   
@@ -1250,7 +1289,7 @@ qc_passes <- c()
                               paste0(wd,'/Plots/', place_name_lower, '_key', '.pdf')),
                     output = paste0(wd,'/Teacher/', place_name_lower, '_teacher_version', '.pdf'))
   
-# } # End of loop (uncomment if looping)
+} # End of loop (uncomment if looping)
 
 # Appendix ------------------------------------------------------------------
 
