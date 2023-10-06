@@ -9,6 +9,7 @@ library(terra)
 library(sf)
 library(units)
 library(smoothr)
+library(geojsonsf)
 # census
 library(tidycensus)
 library(tigris)
@@ -45,6 +46,7 @@ if (debug == FALSE) {
   wd <- '/Users/nikhilpatel/Documents/Projects/Geospatial_Sampling'
 } else {
   wd <- '/Users/nikhilpatel/Documents/Projects/Geospatial_Sampling/Debug'
+  main_dir <- '/Users/nikhilpatel/Documents/Projects/Geospatial_Sampling'
 }
 
 # Sampling functions
@@ -189,7 +191,7 @@ qc_fails <- c()
 qc_passes <- c()
 
 # Beginning of loop; filter clause is for if you want to start the loop in the middle
-for (i in unique((remaining_list %>% filter(city_rank >= 65))$geoid)) {
+# for (i in unique((remaining_list %>% filter(city_rank >= 65))$geoid)) {
   # i <- "1714000" # Chicago
   # i <- "2255000" # New Orleans (wide city)
   # i <- "1571550" # Urban Honolulu
@@ -198,7 +200,7 @@ for (i in unique((remaining_list %>% filter(city_rank >= 65))$geoid)) {
   # i <- "0820000" # Denver
   # i <- "0675000" # Stockton
   # i <- "0613392" # Chula Vista
-  # i <- "0667000" # San Francisco (city with weird island)
+  i <- "0667000" # San Francisco (city with weird island)
   # i <- "4865000" # San Antonio
   # i <- "1304000" # Atlanta
   
@@ -250,20 +252,12 @@ for (i in unique((remaining_list %>% filter(city_rank >= 65))$geoid)) {
     tract_data <- tract_data %>% filter(geoid != "08031980001")
   } else if (i == "1304000") { # Removing Emory University from Atlanta
     tract_data <- tract_data %>% filter(geoid != "13089022404")
+  } else if (i == "0667000") { # Removing remote island from San Francisco
+    tract_data <- tract_data %>% filter(geoid != "06075980401")
   }
   
   # Save original city border
   city_border <- tract_data %>% st_union()
-  
-  if (i == "0667000") { # Cut out remote island from San Francisco
-    bbox <- st_sfc(st_polygon(list(rbind(c(-122.3262, 37.83354), 
-                                         c(-122.3262, 37.70687), 
-                                         c(-122.5163, 37.70687), 
-                                         c(-122.5163, 37.83354), 
-                                         c(-122.3262, 37.83354)))))
-    st_crs(bbox) <- st_crs(4326)
-    city_border <- city_border %>% st_intersection(bbox)
-  }
   
   # Save empty tracts
   empty_tracts <- tract_data %>%
@@ -902,6 +896,15 @@ for (i in unique((remaining_list %>% filter(city_rank >= 65))$geoid)) {
            width = 8.5, height = 11) # dpi = 300,
   }
   
+  # st_write(bbox, paste0(main_dir, "/Cache/", place_name_lower, "_bbox.shp"))
+  # st_write(water_layer, paste0(main_dir, "/Cache/", place_name_lower, "_water.shp"))
+  # st_write(roads_layer, paste0(main_dir, "/Cache/", place_name_lower, "_roads.shp"))
+  # st_write(secondary_roads_layer, paste0(main_dir, "/Cache/", place_name_lower, "_secondary_roads.shp"))
+  # st_write(green_layer, paste0(main_dir, "/Cache/", place_name_lower, "_green_space.shp"))
+  # st_write(city_border, paste0(main_dir, "/Cache/", place_name_lower, "_border.shp"))
+  # st_write(clusters_10, paste0(main_dir, "/Cache/", place_name_lower, "_regions.shp"))
+  # st_write(synthetic_sample_points, paste0(main_dir, "/Cache/", place_name_lower, "_points.shp"))
+  
   # Tables ------------------------------------------------------------------
   
   # Generate dataframe for table for all 100 points
@@ -1289,7 +1292,7 @@ for (i in unique((remaining_list %>% filter(city_rank >= 65))$geoid)) {
                               paste0(wd,'/Plots/', place_name_lower, '_key', '.pdf')),
                     output = paste0(wd,'/Teacher/', place_name_lower, '_teacher_version', '.pdf'))
   
-} # End of loop (uncomment if looping)
+# } # End of loop (uncomment if looping)
 
 # Appendix ------------------------------------------------------------------
 
