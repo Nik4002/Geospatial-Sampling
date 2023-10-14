@@ -9,7 +9,6 @@ library(terra)
 library(sf)
 library(units)
 library(smoothr)
-library(geojsonsf)
 # census
 library(tidycensus)
 library(tigris)
@@ -191,7 +190,7 @@ qc_fails <- c()
 qc_passes <- c()
 
 # Beginning of loop; filter clause is for if you want to start the loop in the middle
-# for (i in unique((remaining_list %>% filter(city_rank >= 65))$geoid)) {
+for (i in unique((remaining_list %>% filter(city_rank >= 61))$geoid)) {
   # i <- "1714000" # Chicago
   # i <- "2255000" # New Orleans (wide city)
   # i <- "1571550" # Urban Honolulu
@@ -200,7 +199,7 @@ qc_passes <- c()
   # i <- "0820000" # Denver
   # i <- "0675000" # Stockton
   # i <- "0613392" # Chula Vista
-  i <- "0667000" # San Francisco (city with weird island)
+  # i <- "0667000" # San Francisco (city with weird island)
   # i <- "4865000" # San Antonio
   # i <- "1304000" # Atlanta
   
@@ -596,23 +595,23 @@ qc_passes <- c()
   rm(polygon_points, polygon)
     
   # Pull green space, roads, and water as basemap layers and intersect with expanded bbox
-  green_spaces <- opq(bbox = bbox) %>%
-    add_osm_feature(key = 'leisure', value = 'park') %>%
-    osmdata_sf()
-  if (is.null(green_spaces$osm_multipolygons)) {
-    if (is.null(green_spaces$osm_polygons)) {
-      green_layer <- st_sf(st_sfc())
-    } else {
-      green_layer <- green_spaces$osm_polygons %>% select(osm_id) %>% st_make_valid() %>% st_intersection(., bbox) %>% st_union()
-    }
-  } else {
-    if (is.null(green_spaces$osm_polygons)) {
-      green_layer <- green_spaces$osm_multipolygons %>% select(osm_id) %>% st_make_valid() %>% st_intersection(., bbox) %>% st_union()
-    } else {
-      green_layer <- rbind(green_spaces$osm_polygons %>% select(osm_id),
-                           green_spaces$osm_multipolygons %>% select(osm_id)) %>% st_make_valid() %>% st_intersection(., bbox) %>% st_union()
-    }
-  }
+  # green_spaces <- opq(bbox = bbox) %>%
+  #   add_osm_feature(key = 'leisure', value = 'park') %>%
+  #   osmdata_sf()
+  # if (is.null(green_spaces$osm_multipolygons)) {
+  #   if (is.null(green_spaces$osm_polygons)) {
+  #     green_layer <- st_sf(st_sfc())
+  #   } else {
+  #     green_layer <- green_spaces$osm_polygons %>% select(osm_id) %>% st_make_valid() %>% st_intersection(., bbox) %>% st_union()
+  #   }
+  # } else {
+  #   if (is.null(green_spaces$osm_polygons)) {
+  #     green_layer <- green_spaces$osm_multipolygons %>% select(osm_id) %>% st_make_valid() %>% st_intersection(., bbox) %>% st_union()
+  #   } else {
+  #     green_layer <- rbind(green_spaces$osm_polygons %>% select(osm_id),
+  #                          green_spaces$osm_multipolygons %>% select(osm_id)) %>% st_make_valid() %>% st_intersection(., bbox) %>% st_union()
+  #   }
+  # }
 
   roads_layer <- tigris::primary_roads(year = 2020) %>%
     st_transform(4326) %>% 
@@ -824,7 +823,7 @@ qc_passes <- c()
   (map <- ggplot() +
       geom_sf(data = bbox, fill = 'white', alpha = 1) + # White background
       geom_sf(data = water_layer, color = '#d1edff', fill = '#d1edff', alpha = 1, linewidth = .6) +
-      geom_sf(data = green_layer, fill = '#c6f2c2', color = '#ffffffff') + 
+      geom_sf(data = green_layer, fill = '#c6f2c2', color = '#ffffffff') +
       geom_sf(data = secondary_roads_layer, color = '#fae7af', alpha = 1, linewidth = .4) +
       geom_sf(data = roads_layer, color = '#fae7af', alpha = 1, linewidth = .6) +
       geom_sf_pattern(data = empty_tracts %>% st_union(), pattern = 'stripe', pattern_fill = '#eeeeee', pattern_colour = '#999999', alpha = 0.5, pattern_density = 0.5, pattern_angle = 45, pattern_spacing = 0.025) +
@@ -834,23 +833,23 @@ qc_passes <- c()
       geom_sf(data = synthetic_sample_points %>% # 100 sample points
                 mutate(race = case_when(race == 'Asian/Pacific Islander' ~ 'Asian',
                                         race == 'Multiracial/Other' ~ 'Multiracial',
-                                        race == 'Native American' ~ 'Native', 
+                                        race == 'Native American' ~ 'Native',
                                         TRUE ~ as.character(race))) %>%
-                mutate(race = factor(race, levels = c("Asian", "Black", "Latino/a", "Multiracial", "Native", "White"))), 
-              aes(color = race, fill = race, size = median_household_income_noise ), 
+                mutate(race = factor(race, levels = c("Asian", "Black", "Latino/a", "Multiracial", "Native", "White"))),
+              aes(color = race, fill = race, size = median_household_income_noise ),
               alpha = .8, linewidth = .2) +
       ggrepel::geom_text_repel(data = synthetic_sample_points, # Point labels
-                               seed = 1, segment.curvature = 0, point.padding = 0, box.padding = 0, max.iter = 1000, segment.square  = FALSE, segment.inflect = FALSE, 
-                               min.segment.length = 0, max.overlaps = Inf, force = .01, force_pull = 2, aes(x = lon, y = lat, label = id), 
-                               size = 3, vjust =.5, color = 'white', fontface='bold') + 
+                               seed = 1, segment.curvature = 0, point.padding = 0, box.padding = 0, max.iter = 1000, segment.square  = FALSE, segment.inflect = FALSE,
+                               min.segment.length = 0, max.overlaps = Inf, force = .01, force_pull = 2, aes(x = lon, y = lat, label = id),
+                               size = 3, vjust =.5, color = 'white', fontface='bold') +
       guides(color = guide_legend(override.aes = list(size = 6, alpha =1))) +
       scale_fill_manual(values = color_vec, name = 'Race/\nethnicity*') +
       scale_color_manual(values = color_vec, name = 'Race/\nethnicity*' ) +
-      scale_size_binned(name = 'Household\nincome', range = c(2.5, 12), 
+      scale_size_binned(name = 'Household\nincome', range = c(2.5, 12),
                         n.breaks = 4,
                         labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
       guides(color = guide_legend(override.aes = list(size = 6, alpha = 1))) +
-      labs(title = place_name, 
+      labs(title = place_name,
            subtitle = paste0("100 representative people in 10 regions in ", place_name, " (10 per region)"),
            caption = "*Complete race/ethnicity names from U.S. Census:
                         Asian: Asian, Native Hawaiian and Other Pacific Islander; Black: Black or African American;
@@ -868,7 +867,7 @@ qc_passes <- c()
                            plot.margin=unit(c(t=10,r=0,b=10,l=10), "pt"),
                            legend.box = 'vertical'
       ))
-  
+
   design1 <- "
     AAAAAAAAAAAAB
     AAAAAAAAAAAAB
@@ -876,18 +875,18 @@ qc_passes <- c()
     AAAAAAAAAAAAB
     AAAAAAAAAAAAB
   "
-  
+
   map <- map + guide_area() + plot_layout(design = design1) # Collect all guides to the right of the map
-  
+
   map
-  
+
   edges <- st_bbox(clusters_10)
   if (edges$xmax - edges$xmin > edges$ymax - edges$ymin) { # If width is greater than height, save as a landscape PDF and rotate
     ggsave(plot = map,
            filename = paste0(wd,'/Plots/', place_name_lower, '_map_landscape', '.pdf'),
            width = 11, height = 8.5) # dpi = 300,
     qpdf::pdf_rotate_pages(input = paste0(wd,'/Plots/', place_name_lower, '_map_landscape', '.pdf'),
-                           pages = c(1), 
+                           pages = c(1),
                            angle = 90,
                            output = paste0(wd,'/Plots/', place_name_lower, '_map', '.pdf'))
   } else { # Otherwise, save as a portrait PDF
@@ -976,12 +975,14 @@ qc_passes <- c()
                aes(x = lon, y = lat, label = region_loc), 
                fontface = 'bold',
                size = 6) + 
-     labs(subtitle = "Regions") + 
+     labs(subtitle = "Regions",
+          caption = "If there are striped areas on the map, they usually represent unpopulated areas such as parks, universities or airports.") + 
      theme_void() + theme(panel.grid = element_blank(),
                           plot.subtitle = element_text(size = 15, face = 'bold', hjust = .5),
+                          plot.caption = element_text(size = 10, hjust = 0.5, vjust = 0.5),
                           panel.border = element_blank(),
                           panel.background = element_blank(),
-                          plot.margin=unit(c(t=0,r=0,b=0,l=0), "pt"),
+                          plot.margin=unit(c(t=0,r=0,b=25,l=0), "pt"),
                           legend.position = 'none'
      )
   )
@@ -1101,11 +1102,13 @@ qc_passes <- c()
           axis.ticks.y=element_blank(),
           axis.line.y=element_blank()) + 
     ggplot2::annotate("text",
-                      x = hi, y = 9,
-                      label = "Median income of 100 households",
+                      x = hi, y = 10,
+                      label = paste0("True median of 100 households ($", synthetic_sample %>% 
+                                                                            select(median_household_income_noise) %>% pull() %>% median() %>% 
+                                                                            round(.) %>% scales::label_comma(accuracy = 1)(.), ")"),
                       color = "#4472C4", fontface = "bold", hjust = 1) +
     ggplot2::annotate("text",
-                      x = hi, y = 10,
+                      x = hi, y = 9,
                       label = "Mean of medians of students' samples",
                       color = "#F5870C", fontface = "bold", hjust = 1)
 
@@ -1216,66 +1219,66 @@ qc_passes <- c()
   
   # Blank key  -------------------------------------------------------------
   
-  blank_judgment_hist <- ggplot() + 
+  blank_judgment_hist <- ggplot() +
     scale_x_continuous(breaks = seq(lo, hi, by = bin_width),
                        limits = c(lo, hi),
                        labels = labels) +
-    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 10)) + 
-    labs(title = "Sampling Distributions for Median Household Income", 
-         x = "Judgment Sample", 
-         y = 'Student count') + 
-    theme_classic() + 
+    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 10)) +
+    labs(title = "Sampling Distributions for Median Household Income",
+         x = "Judgment Sample",
+         y = 'Student count') +
+    theme_classic() +
     theme(plot.title = element_text(face = 'bold', hjust = 0.5),
           axis.text.x=element_text(size=6),
-          axis.text.y=element_blank(), 
+          axis.text.y=element_blank(),
           axis.title.y=element_blank(),
           axis.ticks.y=element_blank(),
           axis.line.y=element_blank())
-  
-  blank_simple_hist <- ggplot() + 
+
+  blank_simple_hist <- ggplot() +
     scale_x_continuous(breaks = seq(lo, hi, by = bin_width),
                        limits = c(lo, hi),
                        labels = labels) +
-    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 10)) + 
-    labs(x = "Simple Random Sample (SRS)", 
-         y = 'Student count') + 
-    theme_classic() + 
+    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 10)) +
+    labs(x = "Simple Random Sample (SRS)",
+         y = 'Student count') +
+    theme_classic() +
     theme(axis.text.x=element_text(size=6),
-          axis.text.y=element_blank(), 
+          axis.text.y=element_blank(),
           axis.title.y=element_blank(),
           axis.ticks.y=element_blank(),
           axis.line.y=element_blank())
-  
-  blank_stratified_hist <- ggplot() + 
+
+  blank_stratified_hist <- ggplot() +
     scale_x_continuous(breaks = seq(lo, hi, by = bin_width),
                        limits = c(lo, hi),
                        labels = labels) +
-    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 10)) + 
-    labs(x = "Stratified Random Sample", 
-         y = 'Student count') + 
-    theme_classic() + 
+    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 10)) +
+    labs(x = "Stratified Random Sample",
+         y = 'Student count') +
+    theme_classic() +
     theme(axis.text.x=element_text(size=6),
-          axis.text.y=element_blank(), 
+          axis.text.y=element_blank(),
           axis.title.y=element_blank(),
           axis.ticks.y=element_blank(),
           axis.line.y=element_blank())
-  
-  blank_cluster_hist <- ggplot() + 
+
+  blank_cluster_hist <- ggplot() +
     scale_x_continuous(breaks = seq(lo, hi, by = bin_width),
                        limits = c(lo, hi),
                        labels = labels) +
-    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 10)) + 
-    labs(x = "Cluster Random Sample", 
-         y = 'Student count') + 
-    theme_classic() + 
+    scale_y_continuous(breaks = seq(0, 10), limits = c(0, 10)) +
+    labs(x = "Cluster Random Sample",
+         y = 'Student count') +
+    theme_classic() +
     theme(axis.text.x=element_text(size=6),
-          axis.text.y=element_blank(), 
+          axis.text.y=element_blank(),
           axis.title.y=element_blank(),
           axis.ticks.y=element_blank(),
           axis.line.y=element_blank())
-  
+
   (blank_key <- blank_judgment_hist / blank_simple_hist / blank_cluster_hist / blank_stratified_hist)
-  
+
   ggsave(plot = blank_key,
          filename = paste0(wd,'/Plots/', place_name_lower, '_blank_key', '.pdf'),
          width = 8.5, height = 11) # dpi = 300,
@@ -1292,7 +1295,7 @@ qc_passes <- c()
                               paste0(wd,'/Plots/', place_name_lower, '_key', '.pdf')),
                     output = paste0(wd,'/Teacher/', place_name_lower, '_teacher_version', '.pdf'))
   
-# } # End of loop (uncomment if looping)
+} # End of loop (uncomment if looping)
 
 # Appendix ------------------------------------------------------------------
 
