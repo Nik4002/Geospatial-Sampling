@@ -35,7 +35,7 @@ set.seed(seed = 100)
 # Directory ---------------------------------------------------------------
 
 # If debug is set to TRUE, no plots will be saved
-debug <- FALSE
+debug <- TRUE
 
 # Replace with your own paths
 # wd_input = '/Users/nm/Desktop/Projects/work/skew-the-script/inputs.nosync'
@@ -190,8 +190,8 @@ qc_fails <- c()
 qc_passes <- c()
 
 # Beginning of loop; filter clause is for if you want to start the loop in the middle
-for (i in unique((remaining_list %>% filter(city_rank >= 61))$geoid)) {
-  # i <- "1714000" # Chicago
+# for (i in unique((remaining_list %>% filter(city_rank >= 61))$geoid)) {
+  i <- "1714000" # Chicago
   # i <- "2255000" # New Orleans (wide city)
   # i <- "1571550" # Urban Honolulu
   # i <- "5548000" # Madison
@@ -229,7 +229,7 @@ for (i in unique((remaining_list %>% filter(city_rank >= 61))$geoid)) {
   
   tract_data_geo <- map2_dfr(.x = state_fips_2, .y = county_fips_3, .f = function(x , y) {
     get_acs(year = 2020, geography = "tract", 
-            survey = 'acs5', variables = c('B19013_001'),
+            survey = 'acs5', variables = c('B01003_001'),
             cache_table = TRUE, 
             state = x, county = y,
             geometry = TRUE) %>% 
@@ -595,23 +595,23 @@ for (i in unique((remaining_list %>% filter(city_rank >= 61))$geoid)) {
   rm(polygon_points, polygon)
     
   # Pull green space, roads, and water as basemap layers and intersect with expanded bbox
-  # green_spaces <- opq(bbox = bbox) %>%
-  #   add_osm_feature(key = 'leisure', value = 'park') %>%
-  #   osmdata_sf()
-  # if (is.null(green_spaces$osm_multipolygons)) {
-  #   if (is.null(green_spaces$osm_polygons)) {
-  #     green_layer <- st_sf(st_sfc())
-  #   } else {
-  #     green_layer <- green_spaces$osm_polygons %>% select(osm_id) %>% st_make_valid() %>% st_intersection(., bbox) %>% st_union()
-  #   }
-  # } else {
-  #   if (is.null(green_spaces$osm_polygons)) {
-  #     green_layer <- green_spaces$osm_multipolygons %>% select(osm_id) %>% st_make_valid() %>% st_intersection(., bbox) %>% st_union()
-  #   } else {
-  #     green_layer <- rbind(green_spaces$osm_polygons %>% select(osm_id),
-  #                          green_spaces$osm_multipolygons %>% select(osm_id)) %>% st_make_valid() %>% st_intersection(., bbox) %>% st_union()
-  #   }
-  # }
+  green_spaces <- opq(bbox = bbox) %>%
+    add_osm_feature(key = 'leisure', value = 'park') %>%
+    osmdata_sf()
+  if (is.null(green_spaces$osm_multipolygons)) {
+    if (is.null(green_spaces$osm_polygons)) {
+      green_layer <- st_sf(st_sfc())
+    } else {
+      green_layer <- green_spaces$osm_polygons %>% select(osm_id) %>% st_make_valid() %>% st_intersection(., bbox) %>% st_union()
+    }
+  } else {
+    if (is.null(green_spaces$osm_polygons)) {
+      green_layer <- green_spaces$osm_multipolygons %>% select(osm_id) %>% st_make_valid() %>% st_intersection(., bbox) %>% st_union()
+    } else {
+      green_layer <- rbind(green_spaces$osm_polygons %>% select(osm_id),
+                           green_spaces$osm_multipolygons %>% select(osm_id)) %>% st_make_valid() %>% st_intersection(., bbox) %>% st_union()
+    }
+  }
 
   roads_layer <- tigris::primary_roads(year = 2020) %>%
     st_transform(4326) %>% 
