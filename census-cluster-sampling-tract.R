@@ -34,8 +34,8 @@ set.seed(seed = 100)
 
 # Directory ---------------------------------------------------------------
 
-# If debug is set to TRUE, no plots will be saved
-debug <- TRUE
+# If debug is set to TRUE, outputs will be saved to the "debug" folder
+debug <- FALSE
 
 # Replace with your own paths
 # wd_input = '/Users/nm/Desktop/Projects/work/skew-the-script/inputs.nosync'
@@ -190,8 +190,9 @@ qc_fails <- c()
 qc_passes <- c()
 
 # Beginning of loop; filter clause is for if you want to start the loop in the middle
-# for (i in unique((remaining_list %>% filter(city_rank >= 61))$geoid)) {
-  i <- "1714000" # Chicago
+for (i in unique((remaining_list %>% filter(city_rank >= 61 & city_rank <= 100))$geoid)) {
+  # i <- "1714000" # Chicago
+  # i <- "3651000" # New York City
   # i <- "2255000" # New Orleans (wide city)
   # i <- "1571550" # Urban Honolulu
   # i <- "5548000" # Madison
@@ -202,6 +203,10 @@ qc_passes <- c()
   # i <- "0667000" # San Francisco (city with weird island)
   # i <- "4865000" # San Antonio
   # i <- "1304000" # Atlanta
+  # i <- "0446000" # Mesa, Arizona
+  # i <- "0603526" # Bakersfield, California
+  # i <- "4837000" # Irving, Texas
+  # i <- "0644000" # Los Angeles
   
   # Pull place name (ex: "San Antonio")
   place_name <- county_place_map %>% filter(geoid == i) %>% st_drop_geometry() %>%
@@ -555,11 +560,11 @@ qc_passes <- c()
     geom_sf(data = tract_data_clusters, aes(fill = cluster_plurality_race)) +
     geom_sf(data = sample_points, color = 'black')
   
-  # tract_data_sample <- sample_points %>% 
-  #   st_transform(3395) %>%
-  #   st_join(., tract_data_all %>% st_transform(3395), left = TRUE,
-  #           join = st_nn, k = 10) %>% #, returnDist = TRUE
-  #   st_transform(4326)
+  tract_data_sample <- sample_points %>%
+    st_transform(3395) %>%
+    st_join(., tract_data_all %>% st_transform(3395), left = TRUE,
+            join = st_nn, k = 10) %>% #, returnDist = TRUE
+    st_transform(4326)
   
   # Use KNN to cluster tracts into 10 regions based on sample point locations
   tract_data_all_geo <- tract_data_all %>% st_transform(3395) %>%
@@ -592,24 +597,25 @@ qc_passes <- c()
                                        c(bbox$xmin, bbox$ymax), 
                                        c(bbox$xmax, bbox$ymax)))))
   st_crs(bbox) <- st_crs(4326)
-  rm(polygon_points, polygon)
-    
+
   # Pull green space, roads, and water as basemap layers and intersect with expanded bbox
-  green_spaces <- opq(bbox = bbox) %>%
-    add_osm_feature(key = 'leisure', value = 'park') %>%
-    osmdata_sf()
-  if (is.null(green_spaces$osm_multipolygons)) {
-    if (is.null(green_spaces$osm_polygons)) {
-      green_layer <- st_sf(st_sfc())
+  if (i != "3651000" & i != "0644000") {
+    green_spaces <- opq(bbox = bbox, timeout = 180) %>%
+      add_osm_feature(key = 'leisure', value = 'park') %>%
+      osmdata_sf()
+    if (is.null(green_spaces$osm_multipolygons)) {
+      if (is.null(green_spaces$osm_polygons)) {
+        green_layer <- st_sf(st_sfc())
+      } else {
+        green_layer <- green_spaces$osm_polygons %>% select(osm_id) %>% st_make_valid() %>% st_intersection(., bbox) %>% st_union()
+      }
     } else {
-      green_layer <- green_spaces$osm_polygons %>% select(osm_id) %>% st_make_valid() %>% st_intersection(., bbox) %>% st_union()
-    }
-  } else {
-    if (is.null(green_spaces$osm_polygons)) {
-      green_layer <- green_spaces$osm_multipolygons %>% select(osm_id) %>% st_make_valid() %>% st_intersection(., bbox) %>% st_union()
-    } else {
-      green_layer <- rbind(green_spaces$osm_polygons %>% select(osm_id),
-                           green_spaces$osm_multipolygons %>% select(osm_id)) %>% st_make_valid() %>% st_intersection(., bbox) %>% st_union()
+      if (is.null(green_spaces$osm_polygons)) {
+        green_layer <- green_spaces$osm_multipolygons %>% select(osm_id) %>% st_make_valid() %>% st_intersection(., bbox) %>% st_union()
+      } else {
+        green_layer <- rbind(green_spaces$osm_polygons %>% select(osm_id),
+                             green_spaces$osm_multipolygons %>% select(osm_id)) %>% st_make_valid() %>% st_intersection(., bbox) %>% st_union()
+      }
     }
   }
 
@@ -820,53 +826,105 @@ qc_passes <- c()
   color_vec <- c('#F5870C', '#4472C4', '#06c049', '#70309F', '#fece0a', '#FF0000')
   
   # Generate map
-  (map <- ggplot() +
-      geom_sf(data = bbox, fill = 'white', alpha = 1) + # White background
-      geom_sf(data = water_layer, color = '#d1edff', fill = '#d1edff', alpha = 1, linewidth = .6) +
-      geom_sf(data = green_layer, fill = '#c6f2c2', color = '#ffffffff') +
-      geom_sf(data = secondary_roads_layer, color = '#fae7af', alpha = 1, linewidth = .4) +
-      geom_sf(data = roads_layer, color = '#fae7af', alpha = 1, linewidth = .6) +
-      geom_sf_pattern(data = empty_tracts %>% st_union(), pattern = 'stripe', pattern_fill = '#eeeeee', pattern_colour = '#999999', alpha = 0.5, pattern_density = 0.5, pattern_angle = 45, pattern_spacing = 0.025) +
-      geom_sf(data = city_border, color = '#999999', alpha = 0, linewidth = .6) +
-      geom_sf(data = bbox, color = '#999999', alpha = 0, linewidth = 1) + # Map border
-      geom_sf(data = clusters_10, color = '#333333', alpha = 0, linewidth = .4) +
-      geom_sf(data = synthetic_sample_points %>% # 100 sample points
-                mutate(race = case_when(race == 'Asian/Pacific Islander' ~ 'Asian',
-                                        race == 'Multiracial/Other' ~ 'Multiracial',
-                                        race == 'Native American' ~ 'Native',
-                                        TRUE ~ as.character(race))) %>%
-                mutate(race = factor(race, levels = c("Asian", "Black", "Latino/a", "Multiracial", "Native", "White"))),
-              aes(color = race, fill = race, size = median_household_income_noise ),
-              alpha = .8, linewidth = .2) +
-      ggrepel::geom_text_repel(data = synthetic_sample_points, # Point labels
-                               seed = 1, segment.curvature = 0, point.padding = 0, box.padding = 0, max.iter = 1000, segment.square  = FALSE, segment.inflect = FALSE,
-                               min.segment.length = 0, max.overlaps = Inf, force = .01, force_pull = 2, aes(x = lon, y = lat, label = id),
-                               size = 3, vjust =.5, color = 'white', fontface='bold') +
-      guides(color = guide_legend(override.aes = list(size = 6, alpha =1))) +
-      scale_fill_manual(values = color_vec, name = 'Race/\nethnicity*') +
-      scale_color_manual(values = color_vec, name = 'Race/\nethnicity*' ) +
-      scale_size_binned(name = 'Household\nincome', range = c(2.5, 12),
-                        n.breaks = 4,
-                        labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
-      guides(color = guide_legend(override.aes = list(size = 6, alpha = 1))) +
-      labs(title = place_name,
-           subtitle = paste0("100 representative people in 10 regions in ", place_name, " (10 per region)"),
-           caption = "*Complete race/ethnicity names from U.S. Census:
-                        Asian: Asian, Native Hawaiian and Other Pacific Islander; Black: Black or African American;
-                        Latino/a: Hispanic or Latino; Multiracial: Two or more races, Other races;
-                        Native: American Indian and Alaska Native; White: White.") +
-      theme_void() + theme(legend.position = 'right',
-                           legend.justification = "top",
-                           plot.title = element_text(size = 15, face = 'bold', hjust = 0.5),
-                           plot.subtitle = element_text(size = 12, hjust = 0.5),
-                           plot.caption = element_text(size = 10, hjust = 0.5, vjust = 0.5),
-                           legend.title = element_text(size = 12, face = 'bold', hjust = 0),
-                           legend.text = element_text(size = 12),
-                           legend.margin=margin(t=20,r=0,b=0,l=5),
-                           legend.box.margin=margin(0,5,0,0),
-                           plot.margin=unit(c(t=10,r=0,b=10,l=10), "pt"),
-                           legend.box = 'vertical'
-      ))
+  if (i != "3651000" & i != "0644000") {
+    (map <- ggplot() +
+        geom_sf(data = bbox, fill = 'white', alpha = 1) + # White background
+        geom_sf(data = water_layer, color = '#d1edff', fill = '#d1edff', alpha = 1, linewidth = .6) +
+        geom_sf(data = green_layer, fill = '#c6f2c2', color = '#ffffffff') +
+        geom_sf(data = secondary_roads_layer, color = '#fae7af', alpha = 1, linewidth = .4) +
+        geom_sf(data = roads_layer, color = '#fae7af', alpha = 1, linewidth = .6) +
+        geom_sf_pattern(data = empty_tracts %>% st_union(), pattern = 'stripe', pattern_fill = '#eeeeee', pattern_colour = '#999999', alpha = 0.5, pattern_density = 0.5, pattern_angle = 45, pattern_spacing = 0.025) +
+        geom_sf(data = city_border, color = '#999999', alpha = 0, linewidth = .6) +
+        geom_sf(data = bbox, color = '#999999', alpha = 0, linewidth = 1) + # Map border
+        geom_sf(data = clusters_10, color = '#333333', alpha = 0, linewidth = .4) +
+        geom_sf(data = synthetic_sample_points %>% # 100 sample points
+                  mutate(race = case_when(race == 'Asian/Pacific Islander' ~ 'Asian',
+                                          race == 'Multiracial/Other' ~ 'Multiracial',
+                                          race == 'Native American' ~ 'Native',
+                                          TRUE ~ as.character(race))) %>%
+                  mutate(race = factor(race, levels = c("Asian", "Black", "Latino/a", "Multiracial", "Native", "White"))),
+                aes(color = race, fill = race, size = median_household_income_noise ),
+                alpha = .8, linewidth = .2) +
+        ggrepel::geom_text_repel(data = synthetic_sample_points, # Point labels
+                                 seed = 1, segment.curvature = 0, point.padding = 0, box.padding = 0, max.iter = 1000, segment.square  = FALSE, segment.inflect = FALSE,
+                                 min.segment.length = 0, max.overlaps = Inf, force = .01, force_pull = 2, aes(x = lon, y = lat, label = id),
+                                 size = 3, vjust =.5, color = 'white', fontface='bold') +
+        guides(color = guide_legend(override.aes = list(size = 6, alpha =1))) +
+        scale_fill_manual(values = color_vec, name = 'Race/\nethnicity*') +
+        scale_color_manual(values = color_vec, name = 'Race/\nethnicity*' ) +
+        scale_size_binned(name = 'Household\nincome', range = c(2.5, 12),
+                          n.breaks = 4,
+                          labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
+        guides(color = guide_legend(override.aes = list(size = 6, alpha = 1))) +
+        labs(title = place_name,
+             subtitle = paste0("100 representative people in 10 regions in ", place_name, " (10 per region)"),
+             caption = "*Complete race/ethnicity names from U.S. Census:
+                          Asian: Asian, Native Hawaiian and Other Pacific Islander; Black: Black or African American;
+                          Latino/a: Hispanic or Latino; Multiracial: Two or more races, Other races;
+                          Native: American Indian and Alaska Native; White: White.") +
+        theme_void() + theme(legend.position = 'right',
+                             legend.justification = "top",
+                             plot.title = element_text(size = 15, face = 'bold', hjust = 0.5),
+                             plot.subtitle = element_text(size = 12, hjust = 0.5),
+                             plot.caption = element_text(size = 10, hjust = 0.5, vjust = 0.5),
+                             legend.title = element_text(size = 12, face = 'bold', hjust = 0),
+                             legend.text = element_text(size = 12),
+                             legend.margin=margin(t=20,r=0,b=0,l=5),
+                             legend.box.margin=margin(0,5,0,0),
+                             plot.margin=unit(c(t=10,r=0,b=10,l=10), "pt"),
+                             legend.box = 'vertical'
+        ))
+  } else {
+    (map <- ggplot() +
+       geom_sf(data = bbox, fill = 'white', alpha = 1) + # White background
+       geom_sf(data = water_layer, color = '#d1edff', fill = '#d1edff', alpha = 1, linewidth = .6) +
+       # geom_sf(data = green_layer, fill = '#c6f2c2', color = '#ffffffff') +
+       geom_sf(data = secondary_roads_layer, color = '#fae7af', alpha = 1, linewidth = .4) +
+       geom_sf(data = roads_layer, color = '#fae7af', alpha = 1, linewidth = .6) +
+       
+       geom_sf(data = empty_tracts %>% st_union(), fill = '#eeeeee', alpha = 0.5) + 
+       # geom_sf_pattern(data = empty_tracts %>% st_union(), pattern = 'stripe', pattern_fill = '#eeeeee', pattern_colour = '#999999', alpha = 0.5, pattern_density = 0.5, pattern_angle = 45, pattern_spacing = 0.025) +
+       geom_sf(data = city_border, color = '#999999', alpha = 0, linewidth = .6) +
+       geom_sf(data = bbox, color = '#999999', alpha = 0, linewidth = 1) + # Map border
+       geom_sf(data = clusters_10, color = '#333333', alpha = 0, linewidth = .4) +
+       geom_sf(data = synthetic_sample_points %>% # 100 sample points
+                 mutate(race = case_when(race == 'Asian/Pacific Islander' ~ 'Asian',
+                                         race == 'Multiracial/Other' ~ 'Multiracial',
+                                         race == 'Native American' ~ 'Native',
+                                         TRUE ~ as.character(race))) %>%
+                 mutate(race = factor(race, levels = c("Asian", "Black", "Latino/a", "Multiracial", "Native", "White"))),
+               aes(color = race, fill = race, size = median_household_income_noise ),
+               alpha = .8, linewidth = .2) +
+       ggrepel::geom_text_repel(data = synthetic_sample_points, # Point labels
+                                seed = 1, segment.curvature = 0, point.padding = 0, box.padding = 0, max.iter = 1000, segment.square  = FALSE, segment.inflect = FALSE,
+                                min.segment.length = 0, max.overlaps = Inf, force = .01, force_pull = 2, aes(x = lon, y = lat, label = id),
+                                size = 3, vjust =.5, color = 'white', fontface='bold') +
+       guides(color = guide_legend(override.aes = list(size = 6, alpha =1))) +
+       scale_fill_manual(values = color_vec, name = 'Race/\nethnicity*') +
+       scale_color_manual(values = color_vec, name = 'Race/\nethnicity*' ) +
+       scale_size_binned(name = 'Household\nincome', range = c(2.5, 12),
+                         n.breaks = 4,
+                         labels = label_dollar(accuracy = 1L, scale =  0.001, suffix = "K")) +
+       guides(color = guide_legend(override.aes = list(size = 6, alpha = 1))) +
+       labs(title = place_name,
+            subtitle = paste0("100 representative people in 10 regions in ", place_name, " (10 per region)"),
+            caption = "*Complete race/ethnicity names from U.S. Census:
+                          Asian: Asian, Native Hawaiian and Other Pacific Islander; Black: Black or African American;
+                          Latino/a: Hispanic or Latino; Multiracial: Two or more races, Other races;
+                          Native: American Indian and Alaska Native; White: White.") +
+       theme_void() + theme(legend.position = 'right',
+                            legend.justification = "top",
+                            plot.title = element_text(size = 15, face = 'bold', hjust = 0.5),
+                            plot.subtitle = element_text(size = 12, hjust = 0.5),
+                            plot.caption = element_text(size = 10, hjust = 0.5, vjust = 0.5),
+                            legend.title = element_text(size = 12, face = 'bold', hjust = 0),
+                            legend.text = element_text(size = 12),
+                            legend.margin=margin(t=20,r=0,b=0,l=5),
+                            legend.box.margin=margin(0,5,0,0),
+                            plot.margin=unit(c(t=10,r=0,b=10,l=10), "pt"),
+                            legend.box = 'vertical'
+       ))
+  }
 
   design1 <- "
     AAAAAAAAAAAAB
@@ -960,32 +1018,63 @@ qc_passes <- c()
   
   # Region Map --------------------------------------------------------------
   
-  (region_map <- ggplot() +
-     geom_sf(data = water_layer, color = '#d1edff', fill = '#d1edff', alpha = 1, linewidth = .6) +
-     geom_sf(data = secondary_roads_layer, color = '#fae7af', alpha = 1, linewidth = .4) +
-     geom_sf(data = roads_layer, color = '#fae7af', alpha = 1, linewidth = .6) +
-     geom_sf_pattern(data = empty_tracts %>% st_union(), pattern = 'stripe', pattern_fill = '#eeeeee', pattern_colour = '#999999', alpha = 0.5, pattern_density = 0.5, pattern_angle = 45, pattern_spacing = 0.025) +
-     geom_sf(data = city_border, color = '#999999', alpha = 0, linewidth = .6) +
-     geom_sf(data = clusters_10, aes(fill = cluster_id), alpha = 0.2, linewidth = .6) + 
-     geom_sf(data = bbox, alpha = 0, linewidth = 1) + 
-     geom_sf(data = clusters_10, color = '#333333', alpha = 0, linewidth = .4) +
-     geom_text(data = clusters_10 %>% st_difference(., clusters_10 %>% st_boundary() %>% st_buffer(500) %>% st_simplify()) %>% filter(c(cluster_id == cluster_id.1)) %>% 
-                 mutate(lon = map_dbl(geometry, ~st_point_on_surface(.x)[[1]]),
-                        lat = map_dbl(geometry, ~st_point_on_surface(.x)[[2]])),
-               aes(x = lon, y = lat, label = region_loc), 
-               fontface = 'bold',
-               size = 6) + 
-     labs(subtitle = "Regions",
-          caption = "If there are striped areas on the map, they usually represent unpopulated areas such as parks, universities or airports.") + 
-     theme_void() + theme(panel.grid = element_blank(),
-                          plot.subtitle = element_text(size = 15, face = 'bold', hjust = .5),
-                          plot.caption = element_text(size = 10, hjust = 0.5, vjust = 0.5),
-                          panel.border = element_blank(),
-                          panel.background = element_blank(),
-                          plot.margin=unit(c(t=0,r=0,b=25,l=0), "pt"),
-                          legend.position = 'none'
-     )
-  )
+  if (i != "3651000" & i != "0644000") {
+    (region_map <- ggplot() +
+       geom_sf(data = water_layer, color = '#d1edff', fill = '#d1edff', alpha = 1, linewidth = .6) +
+       geom_sf(data = secondary_roads_layer, color = '#fae7af', alpha = 1, linewidth = .4) +
+       geom_sf(data = roads_layer, color = '#fae7af', alpha = 1, linewidth = .6) +
+       geom_sf_pattern(data = empty_tracts %>% st_union(), pattern = 'stripe', pattern_fill = '#eeeeee', pattern_colour = '#999999', alpha = 0.5, pattern_density = 0.5, pattern_angle = 45, pattern_spacing = 0.025) +
+       geom_sf(data = city_border, color = '#999999', alpha = 0, linewidth = .6) +
+       geom_sf(data = clusters_10, aes(fill = cluster_id), alpha = 0.2, linewidth = .6) + 
+       geom_sf(data = bbox, alpha = 0, linewidth = 1) + 
+       geom_sf(data = clusters_10, color = '#333333', alpha = 0, linewidth = .4) +
+       geom_text(data = clusters_10 %>% st_difference(., clusters_10 %>% st_boundary() %>% st_buffer(500) %>% st_simplify()) %>% filter(c(cluster_id == cluster_id.1)) %>% 
+                   mutate(lon = map_dbl(geometry, ~st_point_on_surface(.x)[[1]]),
+                          lat = map_dbl(geometry, ~st_point_on_surface(.x)[[2]])),
+                 aes(x = lon, y = lat, label = region_loc), 
+                 fontface = 'bold',
+                 size = 6) + 
+       labs(subtitle = "Regions",
+            caption = "If there are greyed-out areas on the map, they usually represent unpopulated areas such as parks, universities or airports.") + 
+       theme_void() + theme(panel.grid = element_blank(),
+                            plot.subtitle = element_text(size = 15, face = 'bold', hjust = .5),
+                            plot.caption = element_text(size = 10, hjust = 0.5, vjust = 0.5),
+                            panel.border = element_blank(),
+                            panel.background = element_blank(),
+                            plot.margin=unit(c(t=0,r=0,b=25,l=0), "pt"),
+                            legend.position = 'none'
+       )
+    )
+  } else {
+    (region_map <- ggplot() +
+       geom_sf(data = water_layer, color = '#d1edff', fill = '#d1edff', alpha = 1, linewidth = .6) +
+       geom_sf(data = secondary_roads_layer, color = '#fae7af', alpha = 1, linewidth = .4) +
+       geom_sf(data = roads_layer, color = '#fae7af', alpha = 1, linewidth = .6) +
+       
+       geom_sf(data = empty_tracts %>% st_union(), fill = '#eeeeee', alpha = 0.5) + 
+       # geom_sf_pattern(data = empty_tracts %>% st_union(), pattern = 'stripe', pattern_fill = '#eeeeee', pattern_colour = '#999999', alpha = 0.5, pattern_density = 0.5, pattern_angle = 45, pattern_spacing = 0.025) +
+       geom_sf(data = city_border, color = '#999999', alpha = 0, linewidth = .6) +
+       geom_sf(data = clusters_10, aes(fill = cluster_id), alpha = 0.2, linewidth = .6) + 
+       geom_sf(data = bbox, alpha = 0, linewidth = 1) + 
+       geom_sf(data = clusters_10, color = '#333333', alpha = 0, linewidth = .4) +
+       geom_text(data = clusters_10 %>% st_difference(., clusters_10 %>% st_boundary() %>% st_buffer(500) %>% st_simplify()) %>% filter(c(cluster_id == cluster_id.1)) %>% 
+                   mutate(lon = map_dbl(geometry, ~st_point_on_surface(.x)[[1]]),
+                          lat = map_dbl(geometry, ~st_point_on_surface(.x)[[2]])),
+                 aes(x = lon, y = lat, label = region_loc), 
+                 fontface = 'bold',
+                 size = 6) + 
+       labs(subtitle = "Regions",
+            caption = "If there are greyed-out areas on the map, they usually represent unpopulated areas such as parks, universities or airports.") + 
+       theme_void() + theme(panel.grid = element_blank(),
+                            plot.subtitle = element_text(size = 15, face = 'bold', hjust = .5),
+                            plot.caption = element_text(size = 10, hjust = 0.5, vjust = 0.5),
+                            panel.border = element_blank(),
+                            panel.background = element_blank(),
+                            plot.margin=unit(c(t=0,r=0,b=25,l=0), "pt"),
+                            legend.position = 'none'
+       )
+    )
+  }
   
   design2 <- "
     AAAAAAA
@@ -1036,12 +1125,11 @@ qc_passes <- c()
                simple_samples = simple_samples, 
                stratified_samples = stratified_samples, 
                cluster_samples = cluster_samples)) {
-      warning(sprintf("%s did not pass the QC check", place_name))
       if (j == runs) {
         fail = TRUE
       }
     } else {
-      sprintf("%s passed the QC check!", place_name)
+      print(paste0(place_name, " passed the QC check on iteration ", j, "!"))
       break
     }
   }
@@ -1214,8 +1302,8 @@ qc_passes <- c()
   (key <- judgment_hist / simple_hist / cluster_hist / stratified_hist)
   
   ggsave(plot = key,
-  filename = paste0(wd,'/Plots/', place_name_lower, '_key', '.pdf'),
-  width = 8.5, height = 11) # dpi = 300,
+         filename = paste0(wd,'/Plots/', place_name_lower, '_key', '.pdf'),
+         width = 8.5, height = 11) # dpi = 300,
   
   # Blank key  -------------------------------------------------------------
   
