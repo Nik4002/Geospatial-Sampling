@@ -35,7 +35,7 @@ set.seed(seed = 100)
 # Directory ---------------------------------------------------------------
 
 # If debug is set to TRUE, outputs will be saved to the "debug" folder
-debug <- FALSE
+debug <- TRUE
 
 # Replace with your own paths
 # wd_input = '/Users/nm/Desktop/Projects/work/skew-the-script/inputs.nosync'
@@ -190,8 +190,8 @@ qc_fails <- c()
 qc_passes <- c()
 
 # Beginning of loop; filter clause is for if you want to start the loop in the middle
-for (i in unique((remaining_list %>% filter(city_rank >= 61 & city_rank <= 100))$geoid)) {
-  # i <- "1714000" # Chicago
+# for (i in unique((remaining_list %>% filter(city_rank >= 61 & city_rank <= 100))$geoid)) {
+  i <- "1714000" # Chicago
   # i <- "3651000" # New York City
   # i <- "2255000" # New Orleans (wide city)
   # i <- "1571550" # Urban Honolulu
@@ -220,19 +220,18 @@ for (i in unique((remaining_list %>% filter(city_rank >= 61 & city_rank <= 100))
   print(place_name)
   
   # Get the place's geometry
-  places_geo <- places_list %>% filter(geoid == i) %>%
+  place_geo <- places_list %>% filter(geoid == i) %>%
     rename(placeid = geoid) %>% select(placeid, geometry) %>%
     fill_holes(threshold = 100000000) # Fill any holes in the city's border, even if this includes other cities
   
   # Get relevant FIPS codes
   city_fips <- county_place_map %>% filter(geoid == i) %>% st_drop_geometry() %>%
     select(state_code, county_code) 
-  state_fips_2 <- city_fips %>% select(state_code) %>% pull()
-  county_fips_3 <- city_fips %>% select(county_code) %>% pull()
+  state_fips <- city_fips %>% select(state_code) %>% pull()
+  county_fips <- city_fips %>% select(county_code) %>% pull()
   
   # Download tract geometries
-  
-  tract_data_geo <- map2_dfr(.x = state_fips_2, .y = county_fips_3, .f = function(x , y) {
+  tract_data_geo <- map2_dfr(.x = state_fips, .y = county_fips, .f = function(x , y) {
     get_acs(year = 2020, geography = "tract", 
             survey = 'acs5', variables = c('B01003_001'),
             cache_table = TRUE, 
@@ -245,7 +244,7 @@ for (i in unique((remaining_list %>% filter(city_rank >= 61 & city_rank <= 100))
   
   tract_data <- tract_data_geo %>%
     st_transform(4326) %>%
-    st_join(x = ., y = places_geo %>% st_transform(3857) %>% 
+    st_join(x = ., y = place_geo %>% st_transform(3857) %>% 
               st_buffer(100) %>% st_transform(4326), 
             join = st_within, left = FALSE)
   
@@ -274,7 +273,7 @@ for (i in unique((remaining_list %>% filter(city_rank >= 61 & city_rank <= 100))
   
   # Download data, recode variables to race / ethnicity categories, then aggregate
   
-  tract_data_race <- map2_dfr(.x = state_fips_2, .y = county_fips_3, .f = function(x , y) {
+  tract_data_race <- map2_dfr(.x = state_fips, .y = county_fips, .f = function(x , y) {
     get_acs(year = 2020, geography = "tract", 
             survey = 'acs5', variables = c('B03002_012', 'B03002_003', 'B03002_004', 'B03002_005', 'B03002_006', 'B03002_007', 'B03002_008', 'B03002_009'),
             summary_var = 'B03002_001', 
@@ -285,7 +284,7 @@ for (i in unique((remaining_list %>% filter(city_rank >= 61 & city_rank <= 100))
     
   tract_data_race <- tract_data_race %>% 
     rename_all(list(tolower)) %>%
-    mutate(variable_label = case_when(variable == 'B03002_012' ~ 'Latino/a',
+    mutate(race = case_when(variable == 'B03002_012' ~ 'Latino/a',
                                       variable == 'B03002_003' ~ 'White',
                                       variable == 'B03002_004' ~ 'Black',
                                       variable == 'B03002_005' ~ 'Native American',
@@ -294,7 +293,7 @@ for (i in unique((remaining_list %>% filter(city_rank >= 61 & city_rank <= 100))
                                       variable == 'B03002_008' ~ 'Multiracial/Other',
                                       variable == 'B03002_009' ~ 'Multiracial/Other',
                                       TRUE ~ as.character(''))) %>%
-    group_by(geoid, variable_label, summary_est) %>% 
+    group_by(geoid, race, summary_est) %>% 
     summarize_at(.vars = vars(estimate), .funs = list(sum)) %>%
     ungroup() %>%
     filter(geoid %in% unique(tract_data$geoid))
@@ -306,9 +305,9 @@ for (i in unique((remaining_list %>% filter(city_rank >= 61 & city_rank <= 100))
     mutate(plurality_rank = row_number(desc(plurality_race_share))) %>%
     ungroup() %>%
     filter(estimate > 0) %>%
-    select(geoid, variable_label, estimate, plurality_race_share, plurality_rank) %>%
+    select(geoid, race, estimate, plurality_race_share, plurality_rank) %>%
     rename(plurality_race_population = estimate,
-           plurality_race = variable_label) %>%
+           plurality_race = race) %>%
     filter(plurality_rank == 1) %>%
     select(geoid, plurality_race, plurality_race_population, plurality_race_share) 
   
@@ -380,18 +379,18 @@ for (i in unique((remaining_list %>% filter(city_rank >= 61 & city_rank <= 100))
   # Geometries --------------------------------------------------------------
   
   # Calculate summary statistics
-  tract_data_race <- tract_data_race %>%
+  tract_data_race_shares <- tract_data_race %>%
     mutate(race_share = estimate/summary_est) %>%
     group_by(geoid) %>%
     mutate(plurality_rank = row_number(desc(race_share))) %>%
     ungroup() %>%
     #filter(estimate > 0) %>%
-    select(geoid, variable_label, estimate, race_share, plurality_rank) %>%
+    select(geoid, race, estimate, race_share, plurality_rank) %>%
     rename(race_population = estimate,
-           race = variable_label)
+           race = race)
   
   # Create wide dataframe of race shares for each tract
-  tract_data_race_wide <-  tract_data_race %>%
+  tract_data_race_wide <-  tract_data_race_shares %>%
     pivot_wider(id_cols = c(geoid),
                 names_from = c(race),
                 values_from = c(race_share, race_population),
@@ -404,7 +403,7 @@ for (i in unique((remaining_list %>% filter(city_rank >= 61 & city_rank <= 100))
   # Median Household Income -------------------------------------------------
   
   # Download data for tracts
-  tract_data_income <- map2_dfr(.x = state_fips_2, .y = county_fips_3, .f = function(x , y) {
+  tract_data_income <- map2_dfr(.x = state_fips, .y = county_fips, .f = function(x , y) {
     get_acs(year = 2020, geography = "tract", 
                                survey = 'acs5', variables = c('B19013_001'),
                                summary_var = 'B01003_001',
@@ -414,7 +413,7 @@ for (i in unique((remaining_list %>% filter(city_rank >= 61 & city_rank <= 100))
   })
   
   tract_data_income <- tract_data_income %>%
-    mutate(variable_label = case_when(variable == 'B19013_001' ~ 'Median household income in the past 12 months')) %>%
+    mutate(race = case_when(variable == 'B19013_001' ~ 'Median household income in the past 12 months')) %>%
     rename_all(list(tolower)) %>%
     select(geoid, estimate, summary_est) %>%
     rename(total_population = summary_est,
@@ -493,7 +492,7 @@ for (i in unique((remaining_list %>% filter(city_rank >= 61 & city_rank <= 100))
     tally(name = 'cluster_count') %>%
     ungroup() 
   
-  # Generate cluster points usign K-Means clustering
+  # Generate cluster points using K-Means clustering
   sample_points <- purrr::map_dfr(
     .x = city_distribution %>% select(race) %>% pull(), 
     .f = function(i) {
@@ -560,11 +559,11 @@ for (i in unique((remaining_list %>% filter(city_rank >= 61 & city_rank <= 100))
     geom_sf(data = tract_data_clusters, aes(fill = cluster_plurality_race)) +
     geom_sf(data = sample_points, color = 'black')
   
-  tract_data_sample <- sample_points %>%
-    st_transform(3395) %>%
-    st_join(., tract_data_all %>% st_transform(3395), left = TRUE,
-            join = st_nn, k = 10) %>% #, returnDist = TRUE
-    st_transform(4326)
+  # tract_data_sample <- sample_points %>%
+  #   st_transform(3395) %>%
+  #   st_join(., tract_data_all %>% st_transform(3395), left = TRUE,
+  #           join = st_nn, k = 10) %>% #, returnDist = TRUE
+  #   st_transform(4326)
   
   # Use KNN to cluster tracts into 10 regions based on sample point locations
   tract_data_all_geo <- tract_data_all %>% st_transform(3395) %>%
@@ -627,7 +626,7 @@ for (i in unique((remaining_list %>% filter(city_rank >= 61 & city_rank <= 100))
     st_transform(4326) %>% 
     st_intersection(., bbox)
   
-  water_layer <- map2_dfr(.x = state_fips_2, .y = county_fips_3, .f = function(x , y) {
+  water_layer <- map2_dfr(.x = state_fips, .y = county_fips, .f = function(x , y) {
     water_layer <- tigris::area_water(state = x, county = y, year = 2020) %>%
       st_transform(4326) %>% 
       st_intersection(., bbox)
@@ -751,7 +750,7 @@ for (i in unique((remaining_list %>% filter(city_rank >= 61 & city_rank <= 100))
     arrange(lat_tile, lon_tile, -desc(lon)) %>%
     mutate(region_loc = row_number())
   
-  # Calculate cluster boundary with a small inward buffer
+  # Calculate cluster boundary with a small inward buffer and remove water
   clusters_padding <- clusters_10 %>%
     st_difference(., clusters_10 %>% 
                     st_boundary() %>% st_as_sf() %>%
@@ -1150,7 +1149,7 @@ for (i in unique((remaining_list %>% filter(city_rank >= 61 & city_rank <= 100))
   lo <- floor(min(synthetic_sample_points$median_household_income_noise)/bin_width) * bin_width
   hi <- ceiling(max(synthetic_sample_points$median_household_income_noise)/bin_width) * bin_width
   
-  # Only label every other tick on the plot (WARNING: NOT PARAMETERIZED TO bin_width)
+  # Only label every other tick on the plot
   label_amounts <- seq(lo/1000, hi/1000, by = bin_width/1000)
   labels <- case_when(label_amounts %% 10 == 0 ~ paste0("$", label_amounts, "K"),
                       label_amounts %% 10 == 5 ~ "")
